@@ -2,6 +2,6 @@
   "versionCode": 3,
   "versionName": "1.0.2",
   "message": "نسخه ۱.۰.۲ با اصلاح ناوبری Back، منوی همبرگری، توضیحات برنامه و مستندسازی کامل.",
-  "downloadUrl": "https://github.com/waxew/App-MDFchi/raw/main/releases/MDFchi-v1.0.2.apk",
-  "note": "versionCode معیار اصلی تشخیص بروزرسانی است؛ فیلدهای ناشناخته توسط برنامه نادیده گرفته می‌شوند."
+  "downloadUrl": "https://github.com/waxew/App-MDFchi/releases",
+  "note": "versionCode معیار اصلی تشخیص بروزرسانی است؛ لینک دریافت فعلاً به صفحه Releases معتبر گیت‌هاب اشاره می‌کند و هنگام انتشار Release دارای فایل APK باید به Asset همان نسخه تغییر کند."
 }
