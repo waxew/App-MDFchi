@@ -1,18 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    AndroidManifest مشخص می‌کند برنامه چه Permissionها، Activityها و تنظیمات سیستمی دارد.
+    این فایل توسط Android هنگام نصب APK خوانده می‌شود.
+-->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- اینترنت فقط برای بررسی version.json و باز کردن مسیر بروزرسانی لازم است. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="true"
+        android:enableOnBackInvokedCallback="false"
         android:icon="@drawable/ic_app_icon"
         android:label="MDFچی"
         android:roundIcon="@drawable/ic_app_icon"
         android:supportsRtl="true"
         android:theme="@style/Theme.MDFchi">
+
+        <!--
+            MainActivity تنها Activity نسخه فعلی و صفحه ورود برنامه است.
+            Predictive Back غیرفعال شده تا Back Stack اختصاصی MainActivity روی Androidهای جدید نیز همان رفتار مورد انتظار را داشته باشد.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
+
+            <!-- این Intent Filter باعث می‌شود آیکون برنامه در Launcher نمایش داده شود. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
