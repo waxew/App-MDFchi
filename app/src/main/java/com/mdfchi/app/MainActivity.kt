@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -14,7 +15,9 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
@@ -29,6 +32,7 @@ class MainActivity : Activity() {
     private val wood = Color.rgb(139, 94, 60)
     private val cream = Color.rgb(255, 248, 239)
     private val ink = Color.rgb(48, 42, 38)
+    private var isHome = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,19 +41,87 @@ class MainActivity : Activity() {
         showHome()
     }
 
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        showHome()
+        if (isHome) super.onBackPressed() else showHome()
     }
 
     private fun basePage(title: String, emoji: String, back: Boolean = true): LinearLayout {
+        isHome = !back
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(28))
+            setPadding(dp(18), dp(14), dp(18), dp(28))
             setBackgroundColor(cream)
         }
-        if (back) root.addView(button("← بازگشت") { showHome() })
-        root.addView(text("$emoji  $title", 28, true, wood).apply { setPadding(0, dp(14), 0, dp(8)) })
+
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        if (back) {
+            top.addView(smallAction("‹") { showHome() }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        } else {
+            top.addView(spaceWidth(48))
+        }
+        top.addView(text("$emoji  $title", 26, true, wood).apply {
+            gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
+        }, LinearLayout.LayoutParams(0, dp(54), 1f))
+        top.addView(smallAction("☰") { openHamburger() }, LinearLayout.LayoutParams(dp(54), dp(48)))
+        root.addView(top)
         return root
+    }
+
+    private fun openHamburger() {
+        val drawer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(22), dp(18), dp(22))
+            setBackgroundColor(Color.WHITE)
+        }
+        drawer.addView(text("🧰  MDFچی", 24, true, wood).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        drawer.addView(text("جعبه ابزار کابینت‌ساز", 13, false, Color.DKGRAY).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        drawer.addView(space(18))
+
+        lateinit var popup: PopupWindow
+        fun item(icon: String, label: String, action: () -> Unit) {
+            drawer.addView(drawerItem(icon, label) {
+                popup.dismiss()
+                action()
+            })
+        }
+
+        popup = PopupWindow(
+            drawer,
+            (resources.displayMetrics.widthPixels * 0.84f).toInt(),
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            true
+        ).apply {
+            setBackgroundDrawable(ColorDrawable(Color.WHITE))
+            isOutsideTouchable = true
+            elevation = dp(18).toFloat()
+        }
+
+        item("⚙️", "تنظیمات") { showSettings() }
+        item("📤", "معرفی به دوستان") { shareApp() }
+        item("👥", "درباره ما") { showAboutUs() }
+        item("✉️", "تماس با ما") { showContactUs() }
+        item("🧰", "درباره نرم‌افزار") { showAboutSoftware() }
+        drawer.addView(space(12))
+        drawer.addView(text("نسخه ${BuildConfig.VERSION_NAME}", 12, false, Color.GRAY).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        popup.showAtLocation(window.decorView, Gravity.END or Gravity.TOP, 0, 0)
+    }
+
+    private fun drawerItem(icon: String, label: String, action: () -> Unit): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(Color.rgb(255, 249, 242), 16)
+            setOnClickListener { action() }
+            layoutParams = LinearLayout.LayoutParams(-1, dp(58)).apply { setMargins(0, dp(4), 0, dp(4)) }
+        }
+        row.addView(text(label, 16, true, ink).apply { gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT }, LinearLayout.LayoutParams(0, -1, 1f))
+        row.addView(text(icon, 22, false, ink).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(dp(42), -1))
+        return row
     }
 
     private fun showHome() {
@@ -63,6 +135,77 @@ class MainActivity : Activity() {
         root.addView(card("🧮 محاسبه هزینه", "ورق، یراق و دستمزد", Color.rgb(221, 236, 247)) { showCostCalculator() })
         root.addView(card("🧰 پروژه‌های من", "مشاهده پروژه‌های ذخیره‌شده", Color.rgb(246, 221, 227)) { showProjects() })
         root.addView(card("🔧 بروزرسانی", "بررسی نسخه جدید برنامه", Color.rgb(255, 232, 168)) { showUpdate() })
+        setScrollable(root)
+    }
+
+    private fun showSettings(scrollToNotifications: Boolean = false) {
+        val root = basePage("تنظیمات", "⚙️")
+        root.addView(card("تنظیمات برنامه", "تنظیمات MDFچی روی همین دستگاه ذخیره می‌شود.", Color.rgb(255, 243, 221)))
+
+        val notifications = Switch(this).apply {
+            text = "اعلان‌ها"
+            textSize = 17f
+            setTextColor(ink)
+            isChecked = prefs.getBoolean("notifications_enabled", true)
+            setPadding(dp(12), dp(if (scrollToNotifications) 20 else 12), dp(12), dp(12))
+            setOnCheckedChangeListener { _, enabled -> prefs.edit().putBoolean("notifications_enabled", enabled).apply() }
+        }
+        root.addView(notifications)
+        root.addView(text("برای اطلاع‌رسانی‌های داخلی برنامه و نسخه‌های جدید.", 13, false, Color.DKGRAY))
+
+        val updateAlerts = Switch(this).apply {
+            text = "اعلان انتشار نسخه جدید"
+            textSize = 16f
+            setTextColor(ink)
+            isChecked = prefs.getBoolean("update_alerts_enabled", true)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setOnCheckedChangeListener { _, enabled -> prefs.edit().putBoolean("update_alerts_enabled", enabled).apply() }
+        }
+        root.addView(updateAlerts)
+        root.addView(card("ذخیره اطلاعات", "پروژه‌های ذخیره‌شده با بروزرسانی برنامه حذف نمی‌شوند.", Color.WHITE))
+        setScrollable(root)
+    }
+
+    private fun shareApp() {
+        val shareText = "MDFچی؛ جعبه ابزار محاسبات کابینت‌ساز\nhttps://github.com/waxew/App-MDFchi"
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "MDFچی")
+            putExtra(Intent.EXTRA_TEXT, shareText)
+        }
+        startActivity(Intent.createChooser(intent, "معرفی MDFچی به دوستان"))
+    }
+
+    private fun showAboutUs() {
+        val root = basePage("درباره ما", "👥")
+        root.addView(space(28))
+        root.addView(centerText("گروه توسعه و برنامه نویسی AS Team", 20, true, wood))
+        root.addView(space(14))
+        root.addView(centerText("تمامی حقوق مربوط به این برنامه انحصاری میباشد", 15, false, ink))
+        setScrollable(root)
+    }
+
+    private fun showContactUs() {
+        val root = basePage("تماس با ما", "✉️")
+        root.addView(space(28))
+        root.addView(centerText("گروه توسعه و برنامه نویسی AS Team", 20, true, wood))
+        root.addView(space(18))
+        root.addView(centerText("ایمیل پشتیبانی", 16, true, ink))
+        root.addView(centerText("as.team.support@gmail.com", 16, false, wood))
+        root.addView(space(16))
+        root.addView(button("ارسال ایمیل به پشتیبانی") {
+            val mail = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:as.team.support@gmail.com"))
+            runCatching { startActivity(mail) }
+        })
+        setScrollable(root)
+    }
+
+    private fun showAboutSoftware() {
+        val root = basePage("درباره نرم‌افزار", "🧰")
+        root.addView(card("MDFچی", "جعبه ابزار محاسبات و مدیریت پروژه برای کابینت‌سازها و MDFکارها", Color.rgb(255, 243, 221)))
+        root.addView(centerText("نسخه ${BuildConfig.VERSION_NAME}", 16, true, ink))
+        root.addView(space(12))
+        root.addView(centerText("محاسبه یونیت، لیست برش، تعداد ورق، هزینه و ذخیره پروژه", 14, false, Color.DKGRAY))
         setScrollable(root)
     }
 
@@ -248,6 +391,15 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(-1, dp(52)).apply { setMargins(0, dp(7), 0, dp(7)) }
     }
 
+    private fun smallAction(label: String, action: () -> Unit): TextView = TextView(this).apply {
+        text = label
+        textSize = 28f
+        setTextColor(wood)
+        gravity = Gravity.CENTER
+        background = rounded(Color.rgb(255, 242, 226), 15)
+        setOnClickListener { action() }
+    }
+
     private fun text(value: String, size: Int, bold: Boolean, color: Int): TextView = TextView(this).apply {
         text = value
         textSize = size.toFloat()
@@ -255,6 +407,12 @@ class MainActivity : Activity() {
         gravity = Gravity.RIGHT
         if (bold) setTypeface(typeface, Typeface.BOLD)
         setLineSpacing(0f, 1.12f)
+    }
+
+    private fun centerText(value: String, size: Int, bold: Boolean, color: Int): TextView = text(value, size, bold, color).apply {
+        gravity = Gravity.CENTER_HORIZONTAL
+        textAlignment = View.TEXT_ALIGNMENT_CENTER
+        setPadding(dp(8), dp(6), dp(8), dp(6))
     }
 
     private fun rounded(fill: Int, radius: Int, stroke: Int? = null) = GradientDrawable().apply {
@@ -265,6 +423,7 @@ class MainActivity : Activity() {
     }
 
     private fun space(height: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(height)) }
+    private fun spaceWidth(width: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(dp(width), 1) }
     private fun num(v: EditText) = v.text.toString().replace(',', '.').toDoubleOrNull() ?: 0.0
     private fun one(v: Double) = String.format(Locale.US, "%.1f", v)
     private fun money(v: Double) = NumberFormat.getIntegerInstance(Locale("fa", "IR")).format(v.toLong())
