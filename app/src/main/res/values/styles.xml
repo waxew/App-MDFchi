@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Theme پایه برنامه؛ UI اصلی به‌صورت Programmatic در MainActivity ساخته می‌شود. -->
 <resources>
+    <!-- NoActionBar چون Top Bar سفارشی شامل Back و Hamburger داخل خود برنامه ساخته می‌شود. -->
     <style name="Theme.MDFchi" parent="android:style/Theme.Material.Light.NoActionBar">
+        <!-- فونت پیش‌فرض خوانا و موجود روی تمام دستگاه‌ها. -->
         <item name="android:fontFamily">sans</item>
+        <!-- آیکون Status Bar تیره است چون زمینه روشن است. -->
         <item name="android:windowLightStatusBar">true</item>
+        <!-- رنگ هماهنگ با تم کرم/چوب. -->
         <item name="android:statusBarColor">#FFF8EF</item>
         <item name="android:navigationBarColor">#FFF8EF</item>
     </style>

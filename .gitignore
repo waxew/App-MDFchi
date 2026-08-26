@@ -1,10 +1,25 @@
+# فایل‌های پروژه IntelliJ/Android Studio که نباید وارد Git شوند.
 *.iml
+.idea/
+
+# Cache و خروجی Gradle؛ روی هر سیستم دوباره ساخته می‌شوند.
 .gradle/
-/local.properties
-/.idea/
+build/
+app/build/
+
+# مسیر SDK محلی هر کامپیوتر و نباید Commit شود.
+local.properties
+
+# فایل سیستمی macOS.
 .DS_Store
-/build/
-/captures/
+
+# خروجی‌های ابزارهای Native/Capture در توسعه‌های آینده.
+captures/
 .externalNativeBuild/
 .cxx/
-app/build/
+
+# کلید امضای Release و اطلاعات خصوصی Signing هرگز داخل GitHub عمومی قرار نمی‌گیرند.
+*.jks
+*.keystore
+signing/
+info.txt

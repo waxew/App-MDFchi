@@ -1,1 +1,3 @@
-# MDFchi v1.0 does not require custom ProGuard/R8 rules yet.
+# این فایل برای قواعد اختصاصی R8/ProGuard است.
+# در نسخه 1.0.2 Minify خاموش است، بنابراین Rule اختصاصی لازم نیست.
+# اگر در آینده Reflection، Serialization پیچیده یا کتابخانه جدید اضافه شد، Rule آن اینجا قرار می‌گیرد.

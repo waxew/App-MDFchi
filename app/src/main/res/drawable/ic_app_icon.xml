@@ -1,12 +1,21 @@
+<!--
+    آیکون برداری MDFچی.
+    Vector Drawable باعث می‌شود آیکون بدون افت کیفیت روی DPIهای مختلف نمایش داده شود.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="48"
     android:viewportHeight="48">
+    <!-- زمینه کرم آیکون. -->
     <path android:fillColor="#FFF3DD" android:pathData="M0,0h48v48h-48z" />
+    <!-- بدنه جعبه ابزار با رنگ چوبی. -->
     <path android:fillColor="#8B5E3C" android:pathData="M8,15h32v24h-32z" />
+    <!-- دسته جعبه ابزار. -->
     <path android:fillColor="#D6A15F" android:pathData="M15,9h18v8h-18z" />
+    <!-- جزئیات روشن وسط جعبه. -->
     <path android:fillColor="#FFF8EF" android:pathData="M20,24h8v4h-8z" />
+    <!-- جزئیات سبز چپ و راست. -->
     <path android:fillColor="#6A994E" android:pathData="M11,18h5v5h-5z" />
     <path android:fillColor="#6A994E" android:pathData="M32,18h5v5h-5z" />
 </vector>
