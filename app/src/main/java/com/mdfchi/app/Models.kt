@@ -5,8 +5,8 @@ import org.json.JSONObject
 import java.util.UUID
 
 /**
- * نوع یونیت‌هایی که موتور هوشمند نسخه 2.0.0 می‌تواند برای آن‌ها لیست برش بسازد.
- * مقدار enum انگلیسی است تا در فایل‌های ذخیره‌شده پایدار بماند؛ label فارسی فقط برای UI است.
+ * نوع یونیت‌هایی که موتور محاسبات نسخه 2.0.0 پشتیبانی می‌کند.
+ * name انگلیسی برای ذخیره پایدار و label فارسی فقط برای رابط کاربری است.
  */
 enum class CabinetType(val label: String, val emoji: String) {
     FLOOR("کابینت زمینی", "🗄️"),
@@ -16,16 +16,13 @@ enum class CabinetType(val label: String, val emoji: String) {
     LEGACY("پروژه نسخه قدیمی", "🧰");
 
     companion object {
-        /** تبدیل امن String ذخیره‌شده به CabinetType؛ داده خراب به LEGACY می‌رود و برنامه Crash نمی‌کند. */
+        /** تبدیل امن مقدار ذخیره‌شده به enum. */
         fun fromStored(value: String?): CabinetType =
             entries.firstOrNull { it.name == value } ?: LEGACY
     }
 }
 
-/**
- * یک قطعه از Cut List.
- * طول و عرض همیشه بر حسب سانتی‌متر ذخیره می‌شوند تا همه محاسبات یک واحد مرجع داشته باشند.
- */
+/** یک ردیف از لیست برش. واحد مرجع طول و عرض سانتی‌متر است. */
 data class CutPiece(
     val name: String,
     val lengthCm: Double,
@@ -39,14 +36,11 @@ data class CutPiece(
     /** مساحت کل این ردیف با احتساب تعداد، بر حسب متر مربع. */
     fun areaM2(): Double = (lengthCm * widthCm * quantity) / 10000.0
 
-    /**
-     * متراژ نوار PVC همین ردیف.
-     * longEdges یعنی تعداد لبه‌هایی که طول قطعه را طی می‌کنند و shortEdges لبه‌هایی که عرض را طی می‌کنند.
-     */
+    /** متراژ نوار PVC همین ردیف با توجه به لبه‌های علامت‌گذاری‌شده. */
     fun pvcMeters(): Double =
         ((lengthCm * longEdges) + (widthCm * shortEdges)) * quantity / 100.0
 
-    /** تبدیل این قطعه به JSON برای ذخیره محلی پروژه. */
+    /** تبدیل به JSON برای ذخیره محلی. */
     fun toJson(): JSONObject = JSONObject()
         .put("name", name)
         .put("lengthCm", lengthCm)
@@ -58,7 +52,7 @@ data class CutPiece(
         .put("note", note)
 
     companion object {
-        /** خواندن CutPiece از JSON با fallbackهای امن برای سازگاری آینده. */
+        /** خواندن CutPiece از JSON با fallback برای داده‌های قدیمی. */
         fun fromJson(json: JSONObject): CutPiece = CutPiece(
             name = json.optString("name", "قطعه"),
             lengthCm = json.optDouble("lengthCm", json.optDouble("a", 0.0)),
@@ -72,20 +66,14 @@ data class CutPiece(
     }
 }
 
-/**
- * خروجی یک محاسبه کامل یونیت.
- * metrics برای نمایش/ذخیره عددهای مهم مثل متراژ MDF، تعداد ورق، PVC و قیمت استفاده می‌شود.
- */
+/** خروجی کامل یک محاسبه تخصصی. */
 data class CalculationResult(
     val pieces: List<CutPiece>,
     val metrics: Map<String, Double>,
     val notes: List<String>
 )
 
-/**
- * مدل پروژه ذخیره‌شده نسخه 2.
- * values تمام ورودی‌های فرم را به صورت String نگه می‌دارد تا ویرایش پروژه بدون از دست دادن داده ممکن باشد.
- */
+/** مدل پروژه ذخیره‌شده نسخه 2. */
 data class ProjectRecord(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
@@ -97,7 +85,7 @@ data class ProjectRecord(
     val metrics: Map<String, Double>,
     val notes: List<String>
 ) {
-    /** سریال‌سازی کامل پروژه برای SharedPreferences. */
+    /** سریال‌سازی پروژه به JSON. */
     fun toJson(): JSONObject {
         val valueObject = JSONObject()
         values.forEach { (key, value) -> valueObject.put(key, value) }
@@ -125,7 +113,7 @@ data class ProjectRecord(
     }
 
     companion object {
-        /** خواندن پروژه نسخه 2 از JSON. */
+        /** خواندن پروژه جدید. */
         fun fromJson(json: JSONObject): ProjectRecord {
             val values = linkedMapOf<String, String>()
             val valueObject = json.optJSONObject("values") ?: JSONObject()
@@ -144,9 +132,7 @@ data class ProjectRecord(
 
             val notes = mutableListOf<String>()
             val notesArray = json.optJSONArray("notes") ?: JSONArray()
-            for (index in 0 until notesArray.length()) {
-                notes += notesArray.optString(index, "")
-            }
+            for (index in 0 until notesArray.length()) notes += notesArray.optString(index, "")
 
             return ProjectRecord(
                 id = json.optString("id").ifBlank { UUID.randomUUID().toString() },
@@ -161,10 +147,7 @@ data class ProjectRecord(
             )
         }
 
-        /**
-         * مهاجرت پروژه‌های نسخه 1.x که ساختار ساده‌تری داشتند.
-         * این تابع باعث می‌شود نصب نسخه 2 روی نسخه قبلی، داده کاربر را دور نریزد.
-         */
+        /** مهاجرت پروژه‌های نسخه 1.x به ساختار جدید بدون حذف اطلاعات کاربر. */
         fun fromLegacy(json: JSONObject): ProjectRecord {
             val legacyPieces = mutableListOf<CutPiece>()
             val parts = json.optJSONArray("pieces") ?: JSONArray()
