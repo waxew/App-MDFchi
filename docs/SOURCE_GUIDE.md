@@ -1,26 +1,35 @@
-# راهنمای سورس App-MDFchi
+# راهنمای سورس — نسخه 2.0.0
 
-این فایل توضیح می‌دهد هر بخش پروژه برای چه ساخته شده است.
+این فایل برای کسی نوشته شده که پروژه را در Android Studio باز می‌کند و می‌خواهد سریع بفهمد هر بخش چه کاری انجام می‌دهد.
 
-- `settings.gradle.kts`: نام پروژه، ماژول‌ها و Repositoryهای Gradle را مشخص می‌کند.
-- `build.gradle.kts`: نسخه Android Gradle Plugin و Kotlin را در سطح پروژه تعیین می‌کند.
-- `gradle.properties`: حافظه Gradle، UTF-8، AndroidX و تنظیمات عمومی Build را نگه می‌دارد.
-- `.gitignore`: فایل‌های تولیدی IDE/Gradle و مخصوصاً کلیدهای امضا را از Commit شدن خارج می‌کند.
-- `app/build.gradle.kts`: تنظیمات اصلی Android شامل SDK، حداقل Android، نسخه، شناسه ثابت نصب و Release را تعریف می‌کند.
-- `app/proguard-rules.pro`: محل قواعد اختصاصی R8/ProGuard برای نسخه‌هایی است که Minify فعال شود.
-- `app/src/main/AndroidManifest.xml`: Permission اینترنت، آیکون، Theme، Activity اصلی و رفتار Back را تعریف می‌کند.
-- `app/src/main/java/com/mdfchi/app/MainActivity.kt`: منطق UI، منوی همبرگری، Back Stack، محاسبات، ذخیره پروژه و بررسی بروزرسانی در این فایل است.
-- `app/src/main/res/values/styles.xml`: Theme روشن و رنگ نوارهای سیستم را مشخص می‌کند.
-- `app/src/main/res/drawable/ic_app_icon.xml`: آیکون برداری جعبه ابزار برنامه است.
-- `version.json`: نسخه منتشرشده و مسیر دریافت آن را برای Update Checker اعلام می‌کند.
-- `.github/workflows/android-apk.yml`: روی GitHub Actions سورس را Compile کرده و unsigned Release APK می‌سازد.
-- `README.md`: معرفی عمومی، امکانات، روش Build و معماری Update را توضیح می‌دهد.
-- `CHANGELOG.md`: تغییرات هر نسخه را نگه می‌دارد.
+## فایل‌های Kotlin
 
-## فایل‌های تولیدشده و فایل‌های برنامه‌نویس
+### `MainActivity.kt`
+رابط کاربری Native Android، صفحات، Navigation/Back Stack، Drawer، پروفایل، فرم‌های ابزارها، پروژه‌ها و خروجی CSV را مدیریت می‌کند. هر ورودی به‌صورت Label بالای کادر و Hint کم‌رنگ داخل کادر ساخته می‌شود.
 
-فایل‌های `build/`، `.gradle/`، `.idea/` و APKهای موقت توسط Android Studio/Gradle تولید می‌شوند و نباید به‌عنوان سورس اصلی ویرایش شوند. فایل‌های Gradle، Manifest، Kotlin، Resource XML، Workflow، README و version.json فایل‌هایی هستند که برنامه‌نویس نگهداری می‌کند.
+### `CabinetEngine.kt`
+موتور مستقل محاسبات است. فرمول‌های کابینت زمینی، دیواری، کمد، یونیت ایستاده، درب، کشو، لولا، طبقه، پشت‌بند، صفحه، MDF، ورق، PVC، پرت، قیمت، یراق، دستمزد و تبدیل واحد در این فایل قرار دارند. این فایل عمداً Android UI import ندارد.
 
-## Signing
+### `Models.kt`
+مدل‌های `CabinetType`، `CutPiece`، `CalculationResult` و `ProjectRecord` را تعریف می‌کند. سریال‌سازی JSON و مهاجرت مدل پروژه قدیمی نیز اینجاست.
 
-برای امنیت، فایل `.jks` و Passwordها در GitHub عمومی وجود ندارند. ZIP خصوصی پروژه شامل `signing/MDFchi-signing-key.jks` و `info.txt` است. گم شدن این کلید باعث می‌شود نتوان نسخه‌های بعدی را به‌عنوان Update روی نسخه منتشرشده نصب کرد.
+### `ProjectStore.kt`
+SharedPreferences را مدیریت می‌کند. پروژه‌های نسخه 2 را ذخیره و داده `projects` نسخه 1.x را در اولین بار به `projects_v2` مهاجرت می‌دهد. نام/عکس پروفایل و تنظیمات اعلان نیز اینجا نگه داشته می‌شوند.
+
+## فایل‌های Android
+
+### `AndroidManifest.xml`
+Permission اینترنت برای Update Checker، نام برنامه، آیکون، Theme و Activity Launcher را تعریف می‌کند.
+
+### `app/build.gradle.kts`
+Application ID ثابت، minSdk/targetSdk و نسخه `2.0.0 / 20` را نگه می‌دارد.
+
+### `ic_app_icon.xml`
+آیکون Vector برنامه است؛ روی DPIهای مختلف بدون افت کیفیت مقیاس می‌شود.
+
+### `styles.xml`
+Theme روشن و رنگ‌های Status/Navigation bar را تعریف می‌کند.
+
+## انتشار
+
+`.github/workflows/android-apk.yml` روی GitHub Actions یک APK Release بدون امضا می‌سازد. Signing Key خصوصی نباید در ریپوی Public قرار گیرد. خروجی نهایی باید با Key موجود در بسته خصوصی پروژه امضا و با `apksigner verify` کنترل شود.

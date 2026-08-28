@@ -1,781 +1,520 @@
 package com.mdfchi.app
 
-// Activity پایه برنامه؛ تمام صفحات نسخه فعلی داخل همین Activity سبک رندر می‌شوند.
 import android.app.Activity
-// Context برای SharedPreferences و نگهداری داده‌های محلی استفاده می‌شود.
-import android.content.Context
-// Intent برای Share، ایمیل و باز کردن لینک بروزرسانی استفاده می‌شود.
+import android.app.AlertDialog
 import android.content.Intent
-// کلاس‌های گرافیکی استاندارد Android برای ساخت UI بدون وابستگی خارجی.
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
-// Uri برای لینک‌های mailto و https استفاده می‌شود.
 import android.net.Uri
-// Bundle ورودی چرخه عمر Activity است.
 import android.os.Bundle
-// InputType نوع کیبورد فیلدهای عددی/متنی را تعیین می‌کند.
+import android.provider.Settings
 import android.text.InputType
-// ابزارهای پایه View و Gravity برای چیدمان برنامه.
 import android.view.Gravity
 import android.view.View
-// Widgetهای استاندارد Android؛ استفاده از این‌ها APK را سبک و سازگار نگه می‌دارد.
+import android.view.ViewOutlineProvider
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
-// JSON برای ذخیره پروژه‌ها و خواندن version.json.
-import org.json.JSONArray
+import android.widget.Toast
 import org.json.JSONObject
-// URL برای بررسی نسخه جدید از GitHub.
 import java.net.URL
-// NumberFormat برای نمایش خوانای مبلغ.
 import java.text.NumberFormat
-// ArrayDeque به‌عنوان Back Stack داخلی برنامه.
+import java.text.SimpleDateFormat
 import java.util.ArrayDeque
+import java.util.Date
 import java.util.Locale
-// توابع ریاضی موردنیاز محاسبات ورق و یونیت.
-import kotlin.math.ceil
-import kotlin.math.max
+import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
- * MainActivity هسته نسخه 1.0.2 برنامه MDFچی است.
- *
- * نکات معماری:
- * - برنامه عمداً وابستگی UI شخص ثالث ندارد تا Build ساده و پایدار بماند.
- * - پروژه‌ها در SharedPreferences ذخیره می‌شوند و هنگام Update حذف نمی‌شوند.
- * - تمام ناوبری از Screen و backStack عبور می‌کند تا دکمه Back ابتدا صفحه قبلی را باز کند.
- * - منوی همبرگری در بالای سمت راست همه صفحات در دسترس است.
+ * Activity اصلی «دستیار هوشمند کابینت‌سازی» نسخه 2.0.0.
+ * UI با Android Views استاندارد ساخته شده و موتور محاسبات، مدل‌ها و ذخیره‌سازی در فایل‌های جدا قرار دارند.
  */
 class MainActivity : Activity() {
 
-    // فایل تنظیمات محلی مشترک برای پروژه‌ها و گزینه‌های Settings.
-    private val prefs by lazy {
-        getSharedPreferences("mdfchi_projects", Context.MODE_PRIVATE)
+    /** صفحات اصلی برنامه. */
+    private enum class Screen { HOME, TOOLS, CABINET, TOOL, PROJECTS, PROJECT, SETTINGS, UPDATE, ABOUT, CONTACT, SOFTWARE }
+
+    /** ابزارهای تخصصی غیر از چهار نوع یونیت. */
+    private enum class SmartTool(val label: String, val emoji: String, val subtitle: String) {
+        DOOR("محاسبه ابعاد درب", "🚪", "ابعاد هر لنگه با خلاصی قابل تنظیم"),
+        DRAWER("محاسبه ابعاد کشو", "🗃️", "جعبه کشو، کف و خلاصی ریل"),
+        HINGES("تعداد و محل لولا", "🔩", "تعداد پیشنهادی و فاصله نصب"),
+        SHELVES("محاسبه طبقات", "📚", "ابعاد و متراژ طبقات"),
+        BACK("محاسبه پشت‌بند", "🧱", "ابعاد و متراژ HDF"),
+        COUNTERTOP("محاسبه صفحه کابینت", "📏", "متر طول و مساحت صفحه"),
+        MDF_AREA("محاسبه متراژ MDF", "🪵", "مساحت قطعات MDF"),
+        SHEETS("تعداد تقریبی ورق", "📐", "برآورد ورق با درصد پرت"),
+        PVC("محاسبه نوار PVC", "🧵", "متراژ لبه‌های نوارخور"),
+        WASTE("محاسبه پرت ورق", "♻️", "پرت و راندمان مصرف"),
+        MDF_PRICE("محاسبه قیمت MDF", "💵", "ورق، قیمت واحد و حمل"),
+        HARDWARE("محاسبه یراق‌آلات", "🪛", "لولا، ریل، دستگیره و پایه"),
+        LABOR("محاسبه دستمزد", "👷", "متر طول و مبلغ ثابت"),
+        FINAL_PRICE("قیمت نهایی پروژه", "🧮", "جمع هزینه‌ها و تخفیف"),
+        CONVERTER("تبدیل واحد", "📐", "میلی‌متر، سانتی‌متر و متر")
     }
 
-    // رنگ چوبی اصلی هویت بصری برنامه.
-    private val wood = Color.rgb(139, 94, 60)
-    // رنگ کرم پس‌زمینه.
+    /** تعریف یک ورودی فرم؛ مقدار واقعی در پروژه جدید خالی است و hint فقط نمونه را نشان می‌دهد. */
+    private data class FieldSpec(val key: String, val label: String, val hint: String, val integer: Boolean = false, val optional: Boolean = false)
+
+    /** خروجی عمومی ابزارهای کوچک. */
+    private data class ToolOutput(val rows: List<Pair<String, String>>, val pieces: List<CutPiece> = emptyList(), val notes: List<String> = emptyList())
+
+    private lateinit var store: ProjectStore
+    private var current = Screen.HOME
+    private val history = ArrayDeque<Screen>()
+    private var cabinetType = CabinetType.FLOOR
+    private var smartTool = SmartTool.DOOR
+    private var editingProject: ProjectRecord? = null
+    private var selectedProject: ProjectRecord? = null
+    private var lastCalculation: CalculationResult? = null
+    private var lastValues: Map<String, String> = emptyMap()
+    private var pendingCsv: String? = null
+
+    // رنگ‌های هویت بصری فانتزی/کارگاهی.
+    private val wood = Color.rgb(126, 83, 55)
+    private val woodDark = Color.rgb(72, 50, 38)
     private val cream = Color.rgb(255, 248, 239)
-    // رنگ اصلی نوشته‌ها.
-    private val ink = Color.rgb(48, 42, 38)
+    private val ink = Color.rgb(47, 42, 38)
+    private val soft = listOf(
+        Color.rgb(255, 232, 205), Color.rgb(231, 242, 223),
+        Color.rgb(226, 239, 249), Color.rgb(247, 226, 231)
+    )
 
-    /** فهرست صفحات داخلی؛ اضافه شدن صفحه جدید باید ابتدا اینجا ثبت شود. */
-    private enum class Screen {
-        HOME,
-        SETTINGS,
-        ABOUT_US,
-        CONTACT_US,
-        ABOUT_SOFTWARE,
-        UNIT_CALCULATOR,
-        SHEET_ESTIMATOR,
-        COST_CALCULATOR,
-        PROJECTS,
-        UPDATE
-    }
-
-    // صفحه‌ای که اکنون روی نمایشگر است.
-    private var currentScreen = Screen.HOME
-
-    // تاریخچه صفحات برای Back واقعی داخل برنامه.
-    private val backStack = ArrayDeque<Screen>()
-
-    /** نقطه شروع برنامه. */
     override fun onCreate(savedInstanceState: Bundle?) {
-        // اجرای چرخه عمر پایه Android.
         super.onCreate(savedInstanceState)
-        // هماهنگی نوارهای سیستم با تم روشن برنامه.
+        store = ProjectStore(this)
         window.statusBarColor = cream
         window.navigationBarColor = cream
-        // شروع همیشه از Home و با تاریخچه خالی.
-        backStack.clear()
-        renderScreen(Screen.HOME)
+        render(Screen.HOME)
     }
 
-    /**
-     * Back در این پروژه نباید از صفحه فرعی مستقیماً برنامه را ببندد.
-     * Manifest رفتار Predictive Back را برای این Activity غیرفعال کرده تا این مسیر روی Androidهای جدید هم ثابت بماند.
-     */
-    @Deprecated("Kept for the app's custom navigation on supported Android versions")
-    override fun onBackPressed() {
-        handleBackNavigation()
-    }
+    /** Back فقط از Home برنامه را می‌بندد؛ در صفحات داخلی به صفحه قبلی برمی‌گردد. */
+    @Deprecated("Custom navigation")
+    override fun onBackPressed() = goBack()
 
-    /** منطق واحد Back برای دکمه سیستم و دکمه بالای صفحات. */
-    private fun handleBackNavigation() {
-        // اگر صفحه قبلی ثبت شده، همان صفحه بدون Push مجدد رندر می‌شود.
-        if (backStack.isNotEmpty()) {
-            renderScreen(backStack.removeLast())
-            return
+    /** دریافت عکس پروفایل یا مقصد خروجی CSV. */
+    @Deprecated("Legacy result API keeps the project dependency-light")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != RESULT_OK) return
+        when (requestCode) {
+            REQUEST_PROFILE -> data?.data?.let { uri ->
+                runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                store.setProfileUri(uri.toString())
+                Toast.makeText(this, "عکس پروفایل ذخیره شد.", Toast.LENGTH_SHORT).show()
+                render(current)
+            }
+            REQUEST_CSV -> {
+                val uri = data?.data ?: return
+                val csv = pendingCsv ?: return
+                runCatching {
+                    contentResolver.openOutputStream(uri)?.use {
+                        // BOM باعث می‌شود فارسی در Excel/LibreOffice درست تشخیص داده شود.
+                        it.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
+                        it.write(csv.toByteArray(Charsets.UTF_8))
+                    }
+                }.onSuccess { Toast.makeText(this, "لیست برش ذخیره شد.", Toast.LENGTH_SHORT).show() }
+                    .onFailure { Toast.makeText(this, "ذخیره فایل انجام نشد.", Toast.LENGTH_SHORT).show() }
+                pendingCsv = null
+            }
         }
-        // اگر به هر دلیل داخل صفحه فرعی هستیم ولی Stack خالی است، Home را نشان می‌دهیم.
-        if (currentScreen != Screen.HOME) {
-            renderScreen(Screen.HOME)
-            return
+    }
+
+    /** ثبت صفحه فعلی و رفتن به مقصد. */
+    private fun go(screen: Screen) {
+        if (screen == current) return
+        history.addLast(current)
+        render(screen)
+    }
+
+    /** Back Stack داخلی. */
+    private fun goBack() {
+        when {
+            history.isNotEmpty() -> render(history.removeLast())
+            current != Screen.HOME -> render(Screen.HOME)
+            else -> finish()
         }
-        // فقط از Home اجازه خروج از Activity داده می‌شود.
-        finish()
     }
 
-    /** ورود به صفحه جدید و ثبت صفحه فعلی در History. */
-    private fun navigateTo(screen: Screen) {
-        // کلیک دوباره روی همان صفحه History اضافی تولید نمی‌کند.
-        if (screen == currentScreen) return
-        // صفحه فعلی برای Back ذخیره می‌شود.
-        backStack.addLast(currentScreen)
-        // صفحه مقصد رندر می‌شود.
-        renderScreen(screen)
-    }
-
-    /** Router مرکزی صفحات؛ currentScreen همیشه از این مسیر تغییر می‌کند. */
-    private fun renderScreen(screen: Screen) {
-        // ثبت صفحه جاری برای Back و UI نوار بالا.
-        currentScreen = screen
-        // انتخاب Renderer مناسب.
+    /** Router صفحه‌ها. */
+    private fun render(screen: Screen) {
+        current = screen
         when (screen) {
-            Screen.HOME -> renderHome()
-            Screen.SETTINGS -> renderSettings()
-            Screen.ABOUT_US -> renderAboutUs()
-            Screen.CONTACT_US -> renderContactUs()
-            Screen.ABOUT_SOFTWARE -> renderAboutSoftware()
-            Screen.UNIT_CALCULATOR -> renderUnitCalculator()
-            Screen.SHEET_ESTIMATOR -> renderSheetEstimator()
-            Screen.COST_CALCULATOR -> renderCostCalculator()
-            Screen.PROJECTS -> renderProjects()
-            Screen.UPDATE -> renderUpdate()
+            Screen.HOME -> home()
+            Screen.TOOLS -> tools()
+            Screen.CABINET -> cabinetForm()
+            Screen.TOOL -> toolForm()
+            Screen.PROJECTS -> projects()
+            Screen.PROJECT -> projectDetail()
+            Screen.SETTINGS -> settings()
+            Screen.UPDATE -> updatePage()
+            Screen.ABOUT -> aboutUs()
+            Screen.CONTACT -> contact()
+            Screen.SOFTWARE -> aboutSoftware()
         }
     }
 
-    /** اسکلت مشترک صفحات: Back سمت چپ، عنوان وسط و Hamburger سمت راست. */
-    private fun basePage(title: String, emoji: String): LinearLayout {
-        // ریشه عمودی صفحه.
+    /** اسکلت همه صفحات؛ Hamburger همیشه بالا سمت راست است. */
+    private fun page(title: String, emoji: String): LinearLayout {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(14), dp(18), dp(28))
+            setPadding(dp(16), dp(12), dp(16), dp(28))
             setBackgroundColor(cream)
         }
-
-        // Top bar را LTR می‌کنیم تا جای فیزیکی Back/Hamburger مستقل از زبان دستگاه ثابت بماند.
-        val top = LinearLayout(this).apply {
+        val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LTR
         }
-
-        // Home نیاز به Back داخلی ندارد؛ فضای خالی تعادل چیدمان را حفظ می‌کند.
-        if (currentScreen == Screen.HOME) {
-            top.addView(spaceWidth(48))
-        } else {
-            // دکمه Back از همان History داخلی استفاده می‌کند.
-            top.addView(
-                smallAction("‹") { handleBackNavigation() },
-                LinearLayout.LayoutParams(dp(48), dp(48))
-            )
-        }
-
-        // عنوان صفحه فضای باقی‌مانده را می‌گیرد.
-        top.addView(
-            text("$emoji  $title", 26, true, wood).apply {
-                gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
-            },
-            LinearLayout.LayoutParams(0, dp(54), 1f)
-        )
-
-        // آیکون سه‌خط همیشه در بالا سمت راست قرار می‌گیرد.
-        top.addView(
-            smallAction("☰") { openHamburger() },
-            LinearLayout.LayoutParams(dp(54), dp(48))
-        )
-
-        // افزودن Top bar به ریشه.
-        root.addView(top)
+        bar.addView(if (current == Screen.HOME) spacerW(48) else small("‹") { goBack() }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        bar.addView(text("$emoji  $title", 22, true, woodDark).apply { gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT }, LinearLayout.LayoutParams(0, dp(56), 1f))
+        bar.addView(small("☰") { drawer() }, LinearLayout.LayoutParams(dp(54), dp(48)))
+        root.addView(bar)
         return root
     }
 
-    /** منوی همبرگری از سمت راست صفحه باز می‌شود. */
-    private fun openHamburger() {
-        // بدنه سفید Drawer.
-        val drawer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(22), dp(18), dp(22))
-            setBackgroundColor(Color.WHITE)
+    /** خانه؛ چهار یونیت اصلی + ابزارها + پروژه‌ها. */
+    private fun home() {
+        val root = page("دستیار هوشمند کابینت‌سازی", "🧰")
+        root.addView(text("محاسبه، برآورد و مدیریت پروژه برای کابینت‌سازها و MDFکارها", 14, false, ink))
+        root.addView(card("🪚  📏  🔩  🪛  🪵", "از ابعاد یونیت تا لیست برش، ورق، PVC، یراق و قیمت نهایی", Color.rgb(255, 242, 220)))
+        root.addView(section("محاسبات اصلی"))
+        listOf(CabinetType.FLOOR, CabinetType.WALL, CabinetType.WARDROBE, CabinetType.TALL).forEachIndexed { i, type ->
+            root.addView(card("${type.emoji} ${type.label}", "لیست برش و برآورد مواد مصرفی", soft[i]) { openCabinet(type) })
         }
+        root.addView(button("همه ابزارهای تخصصی") { go(Screen.TOOLS) })
+        root.addView(button("پروژه‌های ذخیره‌شده") { go(Screen.PROJECTS) })
+        root.addView(card("🤖 پیشنهاد دستیار", "بعد از محاسبه، نکات ساخت، تعداد تقریبی ورق و راندمان اولیه هم نمایش داده می‌شود.", Color.WHITE))
+        scroll(root)
+    }
 
-        // عنوان و زیرعنوان منو.
-        drawer.addView(text("🧰  MDFچی", 24, true, wood).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-        })
-        drawer.addView(text("جعبه ابزار کابینت‌ساز", 13, false, Color.DKGRAY).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-        })
-        drawer.addView(space(18))
-
-        // Popup باید قبل از Itemها ساخته شود تا Item بتواند آن را dismiss کند.
-        lateinit var popup: PopupWindow
-
-        // Helper داخلی برای ساخت گزینه‌های منو.
-        fun item(icon: String, label: String, action: () -> Unit) {
-            drawer.addView(drawerItem(icon, label) {
-                popup.dismiss()
-                action()
+    /** همه 19 ابزار تخصصی درخواست‌شده. */
+    private fun tools() {
+        val root = page("ابزارهای تخصصی", "🛠️")
+        root.addView(text("کادرها در پروژه جدید خالی‌اند؛ متن کم‌رنگ فقط نمونه مقدار است.", 13, false, Color.DKGRAY))
+        root.addView(section("یونیت‌ها"))
+        listOf(CabinetType.FLOOR, CabinetType.WALL, CabinetType.WARDROBE, CabinetType.TALL).forEach { type ->
+            root.addView(card("${type.emoji} ${type.label}", "تولید لیست برش، MDF، PVC و ورق", Color.WHITE) { openCabinet(type) })
+        }
+        root.addView(section("محاسبات جزئی و مالی"))
+        SmartTool.entries.forEachIndexed { i, tool ->
+            root.addView(card("${tool.emoji} ${tool.label}", tool.subtitle, soft[i % soft.size]) {
+                smartTool = tool
+                go(Screen.TOOL)
             })
         }
-
-        // عرض Drawer حدود 84 درصد صفحه است.
-        popup = PopupWindow(
-            drawer,
-            (resources.displayMetrics.widthPixels * 0.84f).toInt(),
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            true
-        ).apply {
-            setBackgroundDrawable(ColorDrawable(Color.WHITE))
-            isOutsideTouchable = true
-            elevation = dp(18).toFloat()
-        }
-
-        // 0) تنظیمات؛ شامل اعلان‌ها.
-        item("⚙️", "تنظیمات") { navigateTo(Screen.SETTINGS) }
-        // 1) معرفی به دوستان؛ Share Sheet سیستم را باز می‌کند.
-        item("📤", "معرفی به دوستان") { shareApp() }
-        // 2) درباره ما.
-        item("👥", "درباره ما") { navigateTo(Screen.ABOUT_US) }
-        // 3) تماس با ما.
-        item("✉️", "تماس با ما") { navigateTo(Screen.CONTACT_US) }
-        // 4) درباره نرم‌افزار.
-        item("🧰", "درباره نرم‌افزار") { navigateTo(Screen.ABOUT_SOFTWARE) }
-
-        // نمایش نسخه فعلی در پایین Drawer.
-        drawer.addView(space(12))
-        drawer.addView(text("نسخه ${BuildConfig.VERSION_NAME}", 12, false, Color.GRAY).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-        })
-
-        // RIGHT عمداً به‌جای END استفاده شده تا منو همیشه از سمت راست باز شود.
-        popup.showAtLocation(window.decorView, Gravity.RIGHT or Gravity.TOP, 0, 0)
+        scroll(root)
     }
 
-    /** یک ردیف قابل لمس داخل منوی همبرگری. */
-    private fun drawerItem(icon: String, label: String, action: () -> Unit): View {
-        // ردیف RTL تا آیکون در سمت راست عنوان قرار بگیرد.
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
-            layoutDirection = View.LAYOUT_DIRECTION_RTL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = rounded(Color.rgb(255, 249, 242), 16)
-            setOnClickListener { action() }
-            layoutParams = LinearLayout.LayoutParams(-1, dp(58)).apply {
-                setMargins(0, dp(4), 0, dp(4))
-            }
-        }
-        // آیکون گزینه.
-        row.addView(text(icon, 22, false, ink).apply {
-            gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(dp(42), -1))
-        // عنوان گزینه.
-        row.addView(text(label, 16, true, ink).apply {
-            gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
-        }, LinearLayout.LayoutParams(0, -1, 1f))
-        return row
+    private fun openCabinet(type: CabinetType) {
+        cabinetType = type
+        editingProject = null
+        lastCalculation = null
+        lastValues = emptyMap()
+        go(Screen.CABINET)
     }
 
-    /** صفحه اصلی و ورودی ابزارهای اصلی. */
-    private fun renderHome() {
-        val root = basePage("MDFچی", "🧰")
-        // زیرعنوان برنامه.
-        root.addView(text("جعبه ابزار کابینت‌ساز", 16, false, ink))
-        root.addView(space(14))
-        // کارت تزئینی ابزارهای کارگاه.
-        root.addView(card("📏  🔩  🪛  🔨  🪚  🪵", "ابزارهای کارگاه همیشه دم دستت", Color.rgb(255, 243, 221)))
-        root.addView(space(12))
-        // ابزار محاسبه یونیت.
-        root.addView(card("📐 محاسبه یونیت", "ابعاد قطعات و لیست برش", Color.rgb(255, 228, 200)) {
-            navigateTo(Screen.UNIT_CALCULATOR)
-        })
-        // ابزار تخمین تعداد ورق.
-        root.addView(card("🪵 تعداد ورق", "تخمین MDF با درصد پرت", Color.rgb(231, 242, 223)) {
-            navigateTo(Screen.SHEET_ESTIMATOR)
-        })
-        // ابزار محاسبه هزینه.
-        root.addView(card("🧮 محاسبه هزینه", "ورق، یراق و دستمزد", Color.rgb(221, 236, 247)) {
-            navigateTo(Screen.COST_CALCULATOR)
-        })
-        // فهرست پروژه‌های ذخیره‌شده.
-        root.addView(card("🧰 پروژه‌های من", "مشاهده پروژه‌های ذخیره‌شده", Color.rgb(246, 221, 227)) {
-            navigateTo(Screen.PROJECTS)
-        })
-        // بررسی نسخه جدید.
-        root.addView(card("🔧 بروزرسانی", "بررسی نسخه جدید برنامه", Color.rgb(255, 232, 168)) {
-            navigateTo(Screen.UPDATE)
-        })
-        setScrollable(root)
-    }
+    /** فرم چهار نوع یونیت؛ Label بالای باکس و Hint داخل آن. */
+    private fun cabinetForm() {
+        val root = page(cabinetType.label, cabinetType.emoji)
+        val initial = editingProject?.values ?: emptyMap()
+        root.addView(if (editingProject == null)
+            text("مقادیر نمونه فقط Hint هستند و لازم نیست چیزی را پاک کنید.", 13, false, Color.DKGRAY)
+        else card("حالت ویرایش", "مقادیر واقعی پروژه قبلی برای ویرایش بارگذاری شده‌اند.", soft[2]))
 
-    /** صفحه تنظیمات برنامه. */
-    private fun renderSettings() {
-        val root = basePage("تنظیمات", "⚙️")
-        root.addView(card("تنظیمات برنامه", "تنظیمات MDFچی روی همین دستگاه ذخیره می‌شود.", Color.rgb(255, 243, 221)))
-
-        // کلید اصلی اعلان‌ها؛ مقدار آن در SharedPreferences نگه داشته می‌شود.
-        val notifications = Switch(this).apply {
-            text = "اعلان‌ها"
-            textSize = 17f
-            setTextColor(ink)
-            isChecked = prefs.getBoolean("notifications_enabled", true)
-            setPadding(dp(12), dp(16), dp(12), dp(12))
-            setOnCheckedChangeListener { _, enabled ->
-                prefs.edit().putBoolean("notifications_enabled", enabled).apply()
-            }
-        }
-        root.addView(notifications)
-        root.addView(text("برای اطلاع‌رسانی‌های داخلی برنامه و نسخه‌های جدید.", 13, false, Color.DKGRAY))
-
-        // کنترل جداگانه اعلان نسخه جدید برای توسعه آینده.
-        val updateAlerts = Switch(this).apply {
-            text = "اعلان انتشار نسخه جدید"
-            textSize = 16f
-            setTextColor(ink)
-            isChecked = prefs.getBoolean("update_alerts_enabled", true)
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            setOnCheckedChangeListener { _, enabled ->
-                prefs.edit().putBoolean("update_alerts_enabled", enabled).apply()
-            }
-        }
-        root.addView(updateAlerts)
-        // توضیح حفظ داده‌ها هنگام نصب Update.
-        root.addView(card("ذخیره اطلاعات", "پروژه‌های ذخیره‌شده با بروزرسانی برنامه حذف نمی‌شوند.", Color.WHITE))
-        setScrollable(root)
-    }
-
-    /** معرفی برنامه از طریق برنامه‌های نصب‌شده روی گوشی. */
-    private fun shareApp() {
-        // متن اشتراک‌گذاری.
-        val shareText = "MDFچی؛ جعبه ابزار محاسبات کابینت‌ساز\nhttps://github.com/waxew/App-MDFchi"
-        // Intent استاندارد متن.
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "MDFچی")
-            putExtra(Intent.EXTRA_TEXT, shareText)
-        }
-        // کاربر برنامه مقصد را انتخاب می‌کند.
-        startActivity(Intent.createChooser(intent, "معرفی MDFچی به دوستان"))
-    }
-
-    /** صفحه درباره ما. */
-    private fun renderAboutUs() {
-        val root = basePage("درباره ما", "👥")
-        root.addView(space(28))
-        root.addView(centerText("گروه توسعه و برنامه نویسی AS Team", 20, true, wood))
-        root.addView(space(14))
-        root.addView(centerText("تمامی حقوق مربوط به این برنامه انحصاری میباشد", 15, false, ink))
-        setScrollable(root)
-    }
-
-    /** صفحه تماس با پشتیبانی. */
-    private fun renderContactUs() {
-        val root = basePage("تماس با ما", "✉️")
-        root.addView(space(28))
-        root.addView(centerText("گروه توسعه و برنامه نویسی AS Team", 20, true, wood))
-        root.addView(space(18))
-        root.addView(centerText("ایمیل پشتیبانی", 16, true, ink))
-        root.addView(centerText("as.team.support@gmail.com", 16, false, wood))
-        root.addView(space(16))
-        // ACTION_SENDTO فقط برنامه‌های سازگار با ایمیل را پیشنهاد می‌دهد.
-        root.addView(button("ارسال ایمیل به پشتیبانی") {
-            val mail = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:as.team.support@gmail.com"))
-            runCatching { startActivity(mail) }
-        })
-        setScrollable(root)
-    }
-
-    /**
-     * درباره نرم‌افزار عمداً ساده است.
-     * هیچ Package Name، Application ID یا اطلاعات فنی اضافه به کاربر نشان داده نمی‌شود.
-     */
-    private fun renderAboutSoftware() {
-        val root = basePage("درباره نرم‌افزار", "🧰")
-        root.addView(space(18))
-        // توضیح کوتاه کاربرد برنامه.
-        root.addView(centerText("MDFچی یک جعبه ابزار ساده و کاربردی برای کابینت‌سازها و MDFکارهاست.", 17, true, wood))
-        root.addView(space(12))
-        root.addView(centerText("با برنامه می‌توانید محاسبات یونیت، لیست برش، تعداد تقریبی ورق و هزینه پروژه را سریع‌تر انجام دهید و پروژه‌های خود را روی دستگاه نگه دارید.", 14, false, ink))
-        root.addView(space(18))
-        // تنها اطلاعات فنی نمایش‌داده‌شده، نسخه برنامه است.
-        root.addView(centerText("نسخه ${BuildConfig.VERSION_NAME}", 16, true, ink))
-        setScrollable(root)
-    }
-
-    /** محاسبه قطعات یک یونیت ساده. */
-    private fun renderUnitCalculator() {
-        val root = basePage("محاسبه یونیت", "📐")
-        root.addView(text("ابعاد بر حسب سانتی‌متر هستند. فرمول این نسخه برای یونیت ساده دوطرفه است.", 13, false, ink))
-
-        // فیلدهای ورودی پروژه.
-        val name = field("نام پروژه", "یونیت جدید", false)
-        val width = field("عرض یونیت", "80")
-        val height = field("ارتفاع یونیت", "72")
-        val depth = field("عمق یونیت", "55")
-        val thickness = field("ضخامت MDF", "1.6")
-        val shelves = field("تعداد طبقه", "1")
-        val doors = field("تعداد درب", "2")
-        listOf(name, width, height, depth, thickness, shelves, doors).forEach { root.addView(it) }
-
-        // Container نتیجه برای پاک/بازسازی بعد از هر محاسبه.
-        val result = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-
-        // اجرای محاسبات لیست برش.
-        root.addView(button("محاسبه لیست برش") {
-            result.removeAllViews()
-            // تبدیل ورودی‌ها به عدد.
-            val w = num(width)
-            val h = num(height)
-            val d = num(depth)
-            val t = num(thickness)
-            val shelfCount = shelves.text.toString().toIntOrNull()?.coerceAtLeast(0) ?: 0
-            // حداقل یک درب؛ جلوگیری از تقسیم بر صفر.
-            val doorCount = doors.text.toString().toIntOrNull()?.coerceAtLeast(1) ?: 1
-
-            // اعتبارسنجی ابعاد نامعتبر.
-            if (w <= 0 || h <= 0 || d <= 0 || t <= 0 || w <= 2 * t) {
-                result.addView(card("خطا", "ابعاد واردشده معتبر نیستند.", Color.rgb(255, 228, 200)))
-                return@button
-            }
-
-            // عرض داخلی با کسر ضخامت دو بدنه.
-            val inner = w - (2 * t)
-            // قطعات پایه.
-            val pieces = mutableListOf(
-                Piece("بدنه چپ و راست", h, d, 2),
-                Piece("کف و سقف", inner, d, 2)
-            )
-            // طبقات اختیاری.
-            if (shelfCount > 0) {
-                pieces += Piece("طبقه", inner, max(d - 1, 1.0), shelfCount)
-            }
-            // درب با خلاصی تقریبی 4 میلی‌متر.
-            pieces += Piece("درب تقریبی", max(h - 0.4, 1.0), max((w - 0.4) / doorCount, 1.0), doorCount)
-
-            // تبدیل مجموع cm² قطعات به m².
-            val area = pieces.sumOf { it.a * it.b * it.qty } / 10000.0
-            // 10 درصد پرت اولیه.
-            val adjusted = area * 1.10
-            // تعداد تقریبی ورق استاندارد 183×366.
-            val sheetsNeeded = ceil(adjusted / (1.83 * 3.66)).toInt()
-
-            // خلاصه مصرف.
-            result.addView(card("مصرف تقریبی", "مساحت قطعات: ${one(area)} m²\nبا ۱۰٪ پرت: ${one(adjusted)} m²\nحدود $sheetsNeeded ورق ۱۸۳×۳۶۶", Color.WHITE))
-            // ردیف‌های لیست برش.
-            pieces.forEach { p ->
-                result.addView(card("${p.name} × ${p.qty}", "${one(p.a)} × ${one(p.b)} cm", Color.WHITE))
-            }
-            // ذخیره پروژه بدون حذف پروژه‌های قبلی.
-            result.addView(button("ذخیره پروژه 🧰") {
-                saveProject(name.text.toString(), width.text.toString(), height.text.toString(), depth.text.toString(), pieces)
-                toastLike(result, "پروژه روی دستگاه ذخیره شد.")
-            })
-            // هشدار درباره تقریبی بودن درب.
-            result.addView(text("ابعاد درب تقریبی است؛ خلاصی، نوع لولا و روش ساخت کارگاه می‌تواند فرمول نهایی را تغییر دهد.", 12, false, Color.DKGRAY))
-        })
-
-        root.addView(result)
-        setScrollable(root)
-    }
-
-    /** تخمین تعداد ورق از روی مساحت. */
-    private fun renderSheetEstimator() {
-        val root = basePage("تخمین تعداد ورق", "🪵")
-        // ورودی‌های قابل تغییر کاربر.
-        val area = field("مساحت موردنیاز (m²)", "12")
-        val waste = field("درصد پرت", "10")
-        val sw = field("عرض ورق (cm)", "183")
-        val sh = field("طول ورق (cm)", "366")
-        listOf(area, waste, sw, sh).forEach { root.addView(it) }
-        val result = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-
-        root.addView(button("محاسبه تعداد ورق") {
-            result.removeAllViews()
-            val need = num(area)
-            val wastePc = max(num(waste), 0.0)
-            val w = num(sw)
-            val h = num(sh)
-            // ورودی صفر/منفی اجازه ادامه ندارد.
-            if (need <= 0 || w <= 0 || h <= 0) {
-                result.addView(card("خطا", "مقادیر واردشده معتبر نیستند.", Color.rgb(255, 228, 200)))
-            } else {
-                // مساحت با پرت.
-                val adjusted = need * (1 + wastePc / 100)
-                // مساحت هر ورق از cm² به m².
-                val sheetArea = w * h / 10000.0
-                // ceil چون ورق کسری قابل خرید نیست.
-                result.addView(card("نتیجه", "مساحت با پرت: ${one(adjusted)} m²\nمساحت هر ورق: ${one(sheetArea)} m²\nتعداد تقریبی: ${ceil(adjusted / sheetArea).toInt()} ورق", Color.WHITE))
-            }
-        })
-
-        root.addView(result)
-        setScrollable(root)
-    }
-
-    /** برآورد هزینه ورق، یراق و دستمزد. */
-    private fun renderCostCalculator() {
-        val root = basePage("محاسبه هزینه", "🧮")
-        // ورودی‌های محاسبه قیمت.
-        val sheets = field("تعداد ورق", "4")
-        val sheetPrice = field("قیمت هر ورق (تومان)", "2500000")
-        val hardware = field("جمع یراق‌آلات (تومان)", "1500000")
-        val labor = field("دستمزد (تومان)", "4000000")
-        listOf(sheets, sheetPrice, hardware, labor).forEach { root.addView(it) }
-        val result = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-
-        root.addView(button("محاسبه هزینه") {
-            result.removeAllViews()
-            // فرمول جمع نسخه فعلی.
-            val total = num(sheets) * num(sheetPrice) + num(hardware) + num(labor)
-            result.addView(card("برآورد", "هزینه نهایی تقریبی: ${money(total)} تومان", Color.WHITE))
-        })
-
-        root.addView(result)
-        setScrollable(root)
-    }
-
-    /** نمایش پروژه‌های ذخیره‌شده به ترتیب جدیدترین. */
-    private fun renderProjects() {
-        val root = basePage("پروژه‌های من", "🧰")
-        // دریافت پروژه‌ها از حافظه محلی.
-        val list = loadProjects()
-        if (list.isEmpty()) {
-            // Empty state.
-            root.addView(card("هنوز پروژه‌ای نیست", "از محاسبه یونیت اولین پروژه را ذخیره کن.", Color.WHITE))
-        } else {
-            // نمایش کارت هر پروژه.
-            list.forEach { p ->
-                val count = p.optJSONArray("pieces")?.length() ?: 0
-                root.addView(card(p.optString("name", "پروژه"), "${p.optString("width")} × ${p.optString("height")} × ${p.optString("depth")} cm\nردیف‌های لیست برش: $count", Color.WHITE))
-            }
-            // پاک کردن کل لیست با حفظ سایر Settingها.
-            root.addView(button("پاک کردن پروژه‌ها") {
-                prefs.edit().remove("projects").apply()
-                renderScreen(Screen.PROJECTS)
-            })
-        }
-        setScrollable(root)
-    }
-
-    /** بررسی نسخه جدید از version.json ریپو. */
-    private fun renderUpdate() {
-        val root = basePage("بروزرسانی برنامه", "🔧")
-        root.addView(card("بروزرسانی برنامه", "نسخه‌های جدید روی نسخه فعلی نصب می‌شوند و پروژه‌های ذخیره‌شده باقی می‌مانند.", Color.WHITE))
-        // TextView وضعیت بررسی.
-        val status = text("نسخه نصب‌شده: ${BuildConfig.VERSION_NAME}", 15, true, ink)
-        root.addView(status)
-        // URL دانلود پس از بررسی موفق پر می‌شود.
-        var latestUrl: String? = null
-
-        root.addView(button("بررسی نسخه جدید") {
-            status.text = "در حال بررسی نسخه جدید…"
-            // شبکه خارج از Main Thread اجرا می‌شود.
-            Thread {
-                try {
-                    // خواندن JSON نسخه از شاخه main.
-                    val json = JSONObject(URL("https://raw.githubusercontent.com/waxew/App-MDFchi/main/version.json").readText())
-                    // versionCode معیار واقعی Update است.
-                    val latestCode = json.optInt("versionCode", BuildConfig.VERSION_CODE)
-                    // versionName فقط برای نمایش به کاربر است.
-                    val latestName = json.optString("versionName", BuildConfig.VERSION_NAME)
-                    // URL فایل نهایی یا صفحه دریافت.
-                    latestUrl = json.optString("downloadUrl").takeIf { it.isNotBlank() }
-                    // تغییر UI روی Main Thread.
-                    runOnUiThread {
-                        status.text = if (latestCode > BuildConfig.VERSION_CODE) {
-                            "نسخه جدید $latestName منتشر شده است."
-                        } else {
-                            "شما آخرین نسخه (${BuildConfig.VERSION_NAME}) را دارید."
-                        }
-                    }
-                } catch (_: Exception) {
-                    // خطاهای شبکه/JSON باعث Crash نمی‌شوند.
-                    runOnUiThread {
-                        status.text = "بررسی نسخه انجام نشد. اتصال اینترنت را بررسی کنید."
-                    }
-                }
-            }.start()
-        })
-
-        root.addView(button("صفحه دریافت نسخه") {
-            // اگر URL نداریم کاربر باید ابتدا Check را بزند.
-            val url = latestUrl
-            if (url == null) {
-                status.text = "ابتدا بررسی نسخه را اجرا کنید."
-            } else {
-                // باز کردن لینک در مرورگر/مدیریت دانلود دستگاه.
-                runCatching {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                }.onFailure {
-                    status.text = "امکان باز کردن لینک دریافت وجود ندارد."
-                }
-            }
-        })
-        setScrollable(root)
-    }
-
-    /** مدل داده یک ردیف لیست برش. */
-    private data class Piece(val name: String, val a: Double, val b: Double, val qty: Int)
-
-    /** ذخیره پروژه به‌شکل JSON داخل SharedPreferences. */
-    private fun saveProject(name: String, w: String, h: String, d: String, pieces: List<Piece>) {
-        // آرایه قبلی پروژه‌ها یا آرایه خالی.
-        val all = JSONArray(prefs.getString("projects", "[]") ?: "[]")
-        // تبدیل Pieceها به JSON.
-        val parts = JSONArray()
-        pieces.forEach {
-            parts.put(JSONObject().put("name", it.name).put("a", it.a).put("b", it.b).put("qty", it.qty))
-        }
-        // افزودن پروژه جدید همراه زمان ذخیره.
-        all.put(
-            JSONObject()
-                .put("name", name.ifBlank { "پروژه بدون نام" })
-                .put("width", w)
-                .put("height", h)
-                .put("depth", d)
-                .put("pieces", parts)
-                .put("savedAt", System.currentTimeMillis())
+        val specs = mutableListOf(
+            FieldSpec("name", "نام پروژه", "مثال: آشپزخانه احمدی"),
+            FieldSpec("width", "عرض یونیت (cm)", "مثال: 80"),
+            FieldSpec("height", "ارتفاع یونیت (cm)", if (cabinetType in listOf(CabinetType.WARDROBE, CabinetType.TALL)) "مثال: 240" else "مثال: 72"),
+            FieldSpec("depth", "عمق یونیت (cm)", if (cabinetType == CabinetType.WALL) "مثال: 32" else "مثال: 55"),
+            FieldSpec("thickness", "ضخامت MDF (cm)", "مثال: 1.6"),
+            FieldSpec("shelves", "تعداد طبقات", "مثال: 2", integer = true, optional = true)
         )
-        // apply غیرمسدودکننده است و UI را متوقف نمی‌کند.
-        prefs.edit().putString("projects", all.toString()).apply()
+        if (cabinetType == CabinetType.WARDROBE) specs += FieldSpec("verticalDividers", "تعداد تقسیمات عمودی", "مثال: 1", integer = true, optional = true)
+        specs += listOf(
+            FieldSpec("doors", "تعداد درب", "مثال: 2", integer = true),
+            FieldSpec("backThickness", "ضخامت پشت‌بند/HDF (cm)", "مثال: 0.3", optional = true),
+            FieldSpec("wastePercent", "درصد پرت اولیه", "مثال: 10", optional = true)
+        )
+        val fields = buildFields(root, specs, initial)
+        val result = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(button("محاسبه هوشمند و تولید لیست برش") {
+            runCatching {
+                val values = fields.mapValues { it.value.text.toString().trim() }
+                val w = number(fields.getValue("width"), "عرض")
+                val h = number(fields.getValue("height"), "ارتفاع")
+                val d = number(fields.getValue("depth"), "عمق")
+                val t = number(fields.getValue("thickness"), "ضخامت MDF")
+                val shelves = intOr(fields.getValue("shelves"), 0)
+                val doors = integer(fields.getValue("doors"), "تعداد درب").coerceAtLeast(1)
+                val back = numOr(fields.getValue("backThickness"), 0.3)
+                val waste = numOr(fields.getValue("wastePercent"), 10.0)
+                val calc = when (cabinetType) {
+                    CabinetType.FLOOR -> CabinetEngine.floorCabinet(w, h, d, t, shelves, doors, back, waste)
+                    CabinetType.WALL -> CabinetEngine.wallCabinet(w, h, d, t, shelves, doors, back, waste)
+                    CabinetType.WARDROBE -> CabinetEngine.wardrobe(w, h, d, t, shelves, intOr(fields.getValue("verticalDividers"), 0), doors, back, waste)
+                    CabinetType.TALL -> CabinetEngine.tallUnit(w, h, d, t, shelves, doors, back, waste)
+                    CabinetType.LEGACY -> CabinetEngine.floorCabinet(w, h, d, t, shelves, doors, back, waste)
+                }
+                lastValues = values
+                lastCalculation = calc
+                showCabinetResult(result, calc)
+            }.onFailure { error(result, it.message ?: "محاسبه انجام نشد.") }
+        })
+        root.addView(result)
+        scroll(root)
     }
 
-    /** خواندن امن پروژه‌ها؛ داده خراب باعث Crash نمی‌شود. */
-    private fun loadProjects(): List<JSONObject> = try {
-        val array = JSONArray(prefs.getString("projects", "[]") ?: "[]")
-        // ترتیب معکوس تا جدیدترین پروژه بالا باشد.
-        buildList {
-            for (i in array.length() - 1 downTo 0) add(array.getJSONObject(i))
-        }
-    } catch (_: Exception) {
-        emptyList()
+    /** نمایش Cut List، متراژ و پیشنهادهای دستیار. */
+    private fun showCabinetResult(box: LinearLayout, calc: CalculationResult) {
+        box.removeAllViews()
+        box.addView(section("خلاصه"))
+        listOf(
+            "متراژ MDF" to "${fmt(calc.metrics["mdfAreaM2"])} m²",
+            "MDF با پرت" to "${fmt(calc.metrics["areaWithWasteM2"])} m²",
+            "تعداد تقریبی ورق ۱۸۳×۳۶۶" to "${(calc.metrics["sheetCount"] ?: 0.0).roundToInt()} ورق",
+            "نوار PVC" to "${fmt(calc.metrics["pvcMeters"])} m",
+            "راندمان تقریبی" to "${fmt(calc.metrics["estimatedEfficiencyPercent"])}٪"
+        ).forEach { box.addView(resultCard(it.first, it.second)) }
+        box.addView(section("لیست برش"))
+        calc.pieces.forEach { p -> box.addView(card(p.name, "${fmt(p.lengthCm)} × ${fmt(p.widthCm)} cm | ${p.quantity} عدد | ${p.material}${if (p.pvcMeters() > 0) " | PVC ${fmt(p.pvcMeters())} m" else ""}", Color.WHITE)) }
+        calc.notes.forEach { box.addView(card("🤖 پیشنهاد", it, soft[1])) }
+        box.addView(button("ذخیره / بروزرسانی پروژه") { saveProject() })
+        box.addView(button("خروجی CSV لیست برش") { exportCsv(lastValues["name"].orEmpty().ifBlank { cabinetType.label }, calc.pieces) })
     }
 
-    /** هر صفحه داخل ScrollView قرار می‌گیرد تا روی نمایشگر کوچک قابل استفاده باشد. */
-    private fun setScrollable(content: View) {
-        val scroll = ScrollView(this).apply {
-            setBackgroundColor(cream)
-            addView(content)
-        }
-        setContentView(scroll)
+    /** ذخیره پروژه جدید یا ویرایش‌شده. */
+    private fun saveProject() {
+        val calc = lastCalculation ?: return toast("ابتدا محاسبه را انجام دهید.")
+        val old = editingProject
+        val now = System.currentTimeMillis()
+        val project = ProjectRecord(
+            id = old?.id ?: UUID.randomUUID().toString(),
+            name = lastValues["name"].orEmpty().ifBlank { "${cabinetType.label} ${date(now)}" },
+            type = cabinetType,
+            createdAt = old?.createdAt ?: now,
+            updatedAt = now,
+            values = lastValues,
+            cutList = calc.pieces,
+            metrics = calc.metrics,
+            notes = calc.notes
+        )
+        store.upsert(project)
+        editingProject = project
+        selectedProject = project
+        toast("پروژه ذخیره شد.")
     }
 
-    /** کارت استاندارد فانتزی برنامه. */
-    private fun card(title: String, subtitle: String, bg: Int, action: (() -> Unit)? = null): View {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = rounded(bg, 20)
-            isClickable = action != null
-            isFocusable = action != null
-            if (action != null) setOnClickListener { action() }
-        }
-        // عنوان کارت.
-        box.addView(text(title, 18, true, ink))
-        // توضیح کارت.
-        box.addView(text(subtitle, 13, false, Color.rgb(90, 80, 72)))
-        // Margin بیرونی.
-        box.layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
-            setMargins(0, dp(6), 0, dp(6))
-        }
-        return box
-    }
+    /** فرم عمومی ابزارهای کوچک؛ همه فیلدها از FieldSpec ساخته می‌شوند. */
+    private fun toolForm() {
+        val root = page(smartTool.label, smartTool.emoji)
+        root.addView(text(smartTool.subtitle, 13, false, Color.DKGRAY))
+        val fields = buildFields(root, toolSpecs(smartTool), emptyMap())
+        val result = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 
-    /** فیلد ورودی استاندارد با Keyboard عددی یا متنی. */
-    private fun field(hint: String, value: String, numeric: Boolean = true): EditText = EditText(this).apply {
-        this.hint = hint
-        setText(value)
-        textSize = 15f
-        setPadding(dp(14), dp(10), dp(14), dp(10))
-        background = rounded(Color.WHITE, 14, Color.rgb(210, 190, 170))
-        inputType = if (numeric) {
-            InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-        } else {
-            InputType.TYPE_CLASS_TEXT
-        }
-        layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
-            setMargins(0, dp(5), 0, dp(5))
-        }
-    }
-
-    /** دکمه اصلی چوبی. */
-    private fun button(label: String, action: () -> Unit): Button = Button(this).apply {
-        text = label
-        textSize = 15f
-        setTextColor(Color.WHITE)
-        isAllCaps = false
-        background = rounded(wood, 16)
-        setOnClickListener { action() }
-        layoutParams = LinearLayout.LayoutParams(-1, dp(52)).apply {
-            setMargins(0, dp(7), 0, dp(7))
-        }
-    }
-
-    /** دکمه کوچک Top bar برای Back و Hamburger. */
-    private fun smallAction(label: String, action: () -> Unit): TextView = TextView(this).apply {
-        text = label
-        textSize = 28f
-        setTextColor(wood)
-        gravity = Gravity.CENTER
-        background = rounded(Color.rgb(255, 242, 226), 15)
-        setOnClickListener { action() }
-    }
-
-    /** TextView راست‌چین استاندارد. */
-    private fun text(value: String, size: Int, bold: Boolean, color: Int): TextView = TextView(this).apply {
-        text = value
-        textSize = size.toFloat()
-        setTextColor(color)
-        gravity = Gravity.RIGHT
-        textDirection = View.TEXT_DIRECTION_RTL
-        if (bold) setTypeface(typeface, Typeface.BOLD)
-        setLineSpacing(0f, 1.12f)
-    }
-
-    /** TextView وسط‌چین برای صفحات معرفی. */
-    private fun centerText(value: String, size: Int, bold: Boolean, color: Int): TextView =
-        text(value, size, bold, color).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            textAlignment = View.TEXT_ALIGNMENT_CENTER
-            setPadding(dp(8), dp(6), dp(8), dp(6))
+        // ابزار تبدیل واحد به‌جای فیلد دوم از Spinner استفاده می‌کند.
+        if (smartTool == SmartTool.CONVERTER) {
+            root.addView(label("واحد ورودی"))
+            val spinner = Spinner(this).apply {
+                adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, listOf("میلی‌متر", "سانتی‌متر", "متر"))
+            }
+            root.addView(spinner, LinearLayout.LayoutParams(-1, dp(52)))
+            root.addView(button("تبدیل") {
+                result.removeAllViews()
+                runCatching { converterOutput(number(fields.getValue("value"), "مقدار"), spinner) }
+                    .onSuccess { out -> out.rows.forEach { result.addView(resultCard(it.first, it.second)) } }
+                    .onFailure { error(result, it.message ?: "مقدار معتبر نیست.") }
+            })
+            root.addView(result)
+            scroll(root)
+            return
         }
 
-    /** GradientDrawable گوشه‌گرد با Stroke اختیاری. */
-    private fun rounded(fill: Int, radius: Int, stroke: Int? = null) = GradientDrawable().apply {
-        shape = GradientDrawable.RECTANGLE
-        setColor(fill)
-        cornerRadius = dp(radius).toFloat()
-        if (stroke != null) setStroke(dp(1), stroke)
+        root.addView(button("محاسبه") {
+            result.removeAllViews()
+            runCatching { calculateTool(smartTool, fields) }
+                .onSuccess { out ->
+                    out.rows.forEach { result.addView(resultCard(it.first, it.second)) }
+                    out.pieces.forEach { p -> result.addView(card(p.name, "${fmt(p.lengthCm)} × ${fmt(p.widthCm)} cm | ${p.quantity} عدد | ${p.material}", Color.WHITE)) }
+                    out.notes.forEach { result.addView(card("توضیح", it, soft[0])) }
+                }
+                .onFailure { error(result, it.message ?: "مقادیر ورودی معتبر نیستند.") }
+        })
+        root.addView(result)
+        scroll(root)
     }
 
-    // Spacer عمودی.
-    private fun space(height: Int) = View(this).apply {
-        layoutParams = LinearLayout.LayoutParams(1, dp(height))
+    /** تعریف فیلدهای هر ابزار. */
+    private fun toolSpecs(tool: SmartTool): List<FieldSpec> = when (tool) {
+        SmartTool.DOOR -> listOf(f("w","عرض دهانه (cm)","مثال: 80"), f("h","ارتفاع دهانه (cm)","مثال: 72"), f("count","تعداد درب","مثال: 2", true), f("gap","خلاصی دور و بین درب‌ها (mm)","مثال: 2"))
+        SmartTool.DRAWER -> listOf(f("w","عرض دهانه کشو (cm)","مثال: 60"), f("h","ارتفاع دهانه (cm)","مثال: 20"), f("d","عمق کابینت (cm)","مثال: 55"), f("t","ضخامت بدنه کشو (cm)","مثال: 1.6"), f("clear","خلاصی ریل در هر طرف (mm)","مثال: 12.5"), f("bottom","ضخامت کف (cm)","مثال: 0.3", optional=true))
+        SmartTool.HINGES -> listOf(f("h","ارتفاع درب (cm)","مثال: 210"), f("weight","وزن تقریبی درب (kg) - اختیاری","مثال: 18", optional=true))
+        SmartTool.SHELVES -> listOf(f("w","عرض داخلی (cm)","مثال: 76.8"), f("d","عمق داخلی (cm)","مثال: 55"), f("count","تعداد طبقات","مثال: 3", true), f("clear","عقب‌نشینی از جلو (cm)","مثال: 1", optional=true))
+        SmartTool.BACK -> listOf(f("w","عرض کار (cm)","مثال: 80"), f("h","ارتفاع کار (cm)","مثال: 72"), f("clear","خلاصی کل (mm)","مثال: 2", optional=true))
+        SmartTool.COUNTERTOP -> listOf(f("len","طول هر تکه صفحه (cm)","مثال: 300"), f("depth","عمق صفحه (cm)","مثال: 60"), f("count","تعداد تکه","مثال: 2", true))
+        SmartTool.MDF_AREA -> listOf(f("len","طول قطعه (cm)","مثال: 72"), f("w","عرض قطعه (cm)","مثال: 55"), f("count","تعداد","مثال: 4", true))
+        SmartTool.SHEETS -> listOf(f("area","متراژ MDF (m²)","مثال: 12"), f("sw","عرض ورق (cm)","مثال: 183"), f("sl","طول ورق (cm)","مثال: 366"), f("waste","درصد پرت","مثال: 10", optional=true))
+        SmartTool.PVC -> listOf(f("len","طول قطعه (cm)","مثال: 72"), f("w","عرض قطعه (cm)","مثال: 55"), f("count","تعداد قطعه","مثال: 2", true), f("le","لبه طولی نوارخور","مثال: 1", true), f("se","لبه عرضی نوارخور","مثال: 0", true), f("waste","درصد پرت PVC","مثال: 5", optional=true))
+        SmartTool.WASTE -> listOf(f("used","مساحت مصرف‌شده (m²)","مثال: 18"), f("bought","مساحت خریداری‌شده (m²)","مثال: 20.1"))
+        SmartTool.MDF_PRICE -> listOf(f("count","تعداد ورق","مثال: 5"), f("price","قیمت هر ورق (تومان)","مثال: 2500000"), f("transport","حمل و هزینه جانبی","مثال: 500000", optional=true))
+        SmartTool.HARDWARE -> listOf(f("hinges","تعداد لولا","مثال: 12"), f("hp","قیمت هر لولا","مثال: 120000"), f("rails","تعداد جفت ریل","مثال: 4"), f("rp","قیمت هر جفت ریل","مثال: 450000"), f("handles","تعداد دستگیره","مثال: 8"), f("handlep","قیمت هر دستگیره","مثال: 150000"), f("legs","تعداد پایه","مثال: 12"), f("legp","قیمت هر پایه","مثال: 70000"), f("misc","متفرقه","مثال: 500000", optional=true))
+        SmartTool.LABOR -> listOf(f("meters","متر طول پروژه","مثال: 8.5"), f("ppm","دستمزد هر متر","مثال: 3000000"), f("extra","مبلغ ثابت/جانبی","مثال: 1000000", optional=true))
+        SmartTool.FINAL_PRICE -> listOf(f("mdf","جمع MDF","مثال: 15000000"), f("hardware","جمع یراق","مثال: 4500000"), f("labor","دستمزد","مثال: 12000000"), f("top","صفحه کابینت","مثال: 6000000", optional=true), f("misc","هزینه متفرقه","مثال: 1000000", optional=true), f("discount","درصد تخفیف","مثال: 5", optional=true))
+        SmartTool.CONVERTER -> listOf(f("value","مقدار","مثال: 1250"))
     }
 
-    // Spacer افقی.
-    private fun spaceWidth(width: Int) = View(this).apply {
-        layoutParams = LinearLayout.LayoutParams(dp(width), 1)
+    /** اجرای فرمول هر ابزار و تبدیل نتیجه به ردیف‌های UI. */
+    private fun calculateTool(tool: SmartTool, fields: Map<String, EditText>): ToolOutput {
+        fun n(k: String, label: String = k) = number(fields.getValue(k), label)
+        fun i(k: String, label: String = k) = integer(fields.getValue(k), label)
+        fun no(k: String, default: Double) = numOr(fields.getValue(k), default)
+        return when (tool) {
+            SmartTool.DOOR -> CabinetEngine.doorDimensions(n("w"), n("h"), i("count"), n("gap")).let { ToolOutput(listOf("عرض هر درب" to "${fmt(it["doorWidthCm"])} cm", "ارتفاع هر درب" to "${fmt(it["doorHeightCm"])} cm", "تعداد" to "${(it["doorCount"]?:1.0).roundToInt()} لنگه")) }
+            SmartTool.DRAWER -> CabinetEngine.drawerDimensions(n("w"), n("h"), n("d"), n("t"), n("clear"), no("bottom",0.3)).let { ToolOutput(listOf("مساحت MDF" to "${fmt(it.metrics["mdfAreaM2"])} m²"), it.pieces, it.notes) }
+            SmartTool.HINGES -> CabinetEngine.hinges(n("h"), no("weight",0.0)).let { ToolOutput(listOf("تعداد پیشنهادی" to "${it.first} لولا", "فاصله مراکز از بالای درب" to it.second.joinToString(" ، ") { p -> "${fmt(p)} cm" }), notes=listOf("برند لولا و وزن واقعی درب می‌تواند تعداد نهایی را تغییر دهد؛ دیتاشیت یراق اولویت دارد.")) }
+            SmartTool.SHELVES -> CabinetEngine.shelves(n("w"), n("d"), i("count"), no("clear",1.0)).let { ToolOutput(listOf("مساحت MDF" to "${fmt(it.metrics["mdfAreaM2"])} m²"), it.pieces, it.notes) }
+            SmartTool.BACK -> CabinetEngine.backPanel(n("w"), n("h"), no("clear",0.0)).let { ToolOutput(listOf("مساحت پشت‌بند" to "${fmt(it.pieces.sumOf { p -> p.areaM2() })} m²"), it.pieces) }
+            SmartTool.COUNTERTOP -> CabinetEngine.countertop(n("len"), n("depth"), i("count")).let { ToolOutput(listOf("متر طول صفحه" to "${fmt(it["linearMeters"])} m", "مساحت صفحه" to "${fmt(it["areaM2"])} m²")) }
+            SmartTool.MDF_AREA -> ToolOutput(listOf("متراژ MDF" to "${fmt(CabinetEngine.mdfArea(n("len"),n("w"),i("count")))} m²"))
+            SmartTool.SHEETS -> CabinetEngine.sheetEstimate(n("area"),n("sw"),n("sl"),no("waste",10.0)).let { ToolOutput(listOf("مساحت هر ورق" to "${fmt(it["sheetAreaM2"])} m²", "متراژ با پرت" to "${fmt(it["adjustedAreaM2"])} m²", "تعداد تقریبی" to "${(it["sheetCount"]?:0.0).roundToInt()} ورق")) }
+            SmartTool.PVC -> CabinetEngine.pvc(n("len"),n("w"),i("count"),i("le"),i("se"),no("waste",5.0)).let { ToolOutput(listOf("PVC خالص" to "${fmt(it["baseMeters"])} m", "PVC با پرت" to "${fmt(it["withWasteMeters"])} m")) }
+            SmartTool.WASTE -> CabinetEngine.waste(n("used"),n("bought")).let { ToolOutput(listOf("مساحت پرت" to "${fmt(it["wasteAreaM2"])} m²", "درصد پرت" to "${fmt(it["wastePercent"])}٪", "راندمان" to "${fmt(it["efficiencyPercent"])}٪")) }
+            SmartTool.MDF_PRICE -> ToolOutput(listOf("جمع MDF" to "${money(CabinetEngine.mdfPrice(n("count"),n("price"),no("transport",0.0)))} تومان"))
+            SmartTool.HARDWARE -> ToolOutput(listOf("جمع یراق‌آلات" to "${money(CabinetEngine.hardwarePrice(n("hinges"),n("hp"),n("rails"),n("rp"),n("handles"),n("handlep"),n("legs"),n("legp"),no("misc",0.0)))} تومان"))
+            SmartTool.LABOR -> ToolOutput(listOf("دستمزد کل" to "${money(CabinetEngine.labor(n("meters"),n("ppm"),no("extra",0.0)))} تومان"))
+            SmartTool.FINAL_PRICE -> CabinetEngine.finalPrice(n("mdf"),n("hardware"),n("labor"),no("top",0.0),no("misc",0.0),no("discount",0.0)).let { ToolOutput(listOf("جمع قبل از تخفیف" to "${money(it["subtotal"]?:0.0)} تومان", "تخفیف" to "${money(it["discount"]?:0.0)} تومان", "قیمت نهایی" to "${money(it["final"]?:0.0)} تومان")) }
+            SmartTool.CONVERTER -> throw IllegalStateException("converter-special")
+        }
     }
 
-    // تبدیل امن EditText به Double؛ ورودی نامعتبر صفر می‌شود.
-    private fun num(v: EditText) = v.text.toString().replace(',', '.').toDoubleOrNull() ?: 0.0
-    // فرمت یک رقم اعشار.
-    private fun one(v: Double) = String.format(Locale.US, "%.1f", v)
-    // فرمت مبلغ با جداکننده هزارگان.
-    private fun money(v: Double) = NumberFormat.getIntegerInstance(Locale("fa", "IR")).format(v.toLong())
-    // تبدیل dp به px بر اساس Density دستگاه.
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
-    // پیام سبک داخل نتیجه بدون نیاز به Toast.
-    private fun toastLike(parent: LinearLayout, message: String) {
-        parent.addView(text(message, 14, true, wood))
+    /** پروژه‌های ذخیره‌شده و مهاجرت‌شده. */
+    private fun projects() {
+        val root = page("پروژه‌های من", "📁")
+        val list = store.loadProjects().sortedByDescending { it.updatedAt }
+        if (list.isEmpty()) root.addView(card("هنوز پروژه‌ای نیست", "از یکی از چهار نوع یونیت یک پروژه بسازید.", Color.WHITE))
+        list.forEach { p -> root.addView(card("${p.type.emoji} ${p.name}", "${p.type.label} • ${date(p.updatedAt)}\n${p.cutList.size} ردیف لیست برش", Color.WHITE) { selectedProject=p; go(Screen.PROJECT) }) }
+        scroll(root)
     }
+
+    /** نمایش، ویرایش، کپی، حذف و خروجی پروژه. */
+    private fun projectDetail() {
+        val p = selectedProject ?: return render(Screen.PROJECTS)
+        val root = page(p.name, p.type.emoji)
+        root.addView(card(p.type.label, "آخرین ویرایش: ${date(p.updatedAt)}", soft[2]))
+        p.metrics["mdfAreaM2"]?.let { root.addView(resultCard("متراژ MDF","${fmt(it)} m²")) }
+        p.metrics["sheetCount"]?.let { root.addView(resultCard("ورق تقریبی","${it.roundToInt()} ورق")) }
+        p.metrics["pvcMeters"]?.let { root.addView(resultCard("PVC","${fmt(it)} m")) }
+        root.addView(section("لیست برش"))
+        p.cutList.forEach { part -> root.addView(card(part.name,"${fmt(part.lengthCm)} × ${fmt(part.widthCm)} cm | ${part.quantity} عدد | ${part.material}",Color.WHITE)) }
+        root.addView(button("ویرایش پروژه") { cabinetType=if(p.type==CabinetType.LEGACY) CabinetType.FLOOR else p.type; editingProject=p; lastValues=p.values; lastCalculation=null; go(Screen.CABINET) })
+        root.addView(button("کپی پروژه") { selectedProject=store.copy(p); toast("کپی پروژه ساخته شد."); render(Screen.PROJECT) })
+        root.addView(button("خروجی CSV") { exportCsv(p.name,p.cutList) })
+        root.addView(button("حذف پروژه") { AlertDialog.Builder(this).setTitle("حذف پروژه").setMessage("پروژه «${p.name}» حذف شود؟").setPositiveButton("حذف") { _,_-> store.delete(p.id); selectedProject=null; render(Screen.PROJECTS) }.setNegativeButton("انصراف",null).show() })
+        scroll(root)
+    }
+
+    /** تنظیمات ساده و قابل توسعه. */
+    private fun settings() {
+        val root=page("تنظیمات","⚙️")
+        root.addView(Switch(this).apply { text="اعلان‌های برنامه"; textSize=17f; setTextColor(ink); isChecked=store.notificationsEnabled(); setOnCheckedChangeListener { _,v->store.setNotificationsEnabled(v) } })
+        root.addView(Switch(this).apply { text="اعلان انتشار نسخه جدید"; textSize=16f; setTextColor(ink); isChecked=store.updateAlertsEnabled(); setOnCheckedChangeListener { _,v->store.setUpdateAlertsEnabled(v) } })
+        root.addView(card("اطلاعات پروژه‌ها","پروژه‌ها محلی هستند و هنگام Update باقی می‌مانند.",Color.WHITE))
+        root.addView(button("تنظیمات سیستمی برنامه") { runCatching { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:$packageName"))) } })
+        scroll(root)
+    }
+
+    /** Update Checker عمومی GitHub. */
+    private fun updatePage() {
+        val root=page("بروزرسانی","🔄")
+        val status=text("نسخه نصب‌شده: ${BuildConfig.VERSION_NAME}",15,true,ink)
+        var url:String?=null
+        root.addView(card("آپدیت‌خور","شناسه برنامه و کلید امضا ثابت مانده‌اند؛ نسخه 2 روی نسخه 1.x نصب می‌شود.",soft[1]))
+        root.addView(status)
+        root.addView(button("بررسی نسخه جدید") { status.text="در حال بررسی…"; Thread { runCatching { JSONObject(URL("https://raw.githubusercontent.com/waxew/App-MDFchi/main/version.json").readText()) }.onSuccess { j-> val code=j.optInt("versionCode",BuildConfig.VERSION_CODE); url=j.optString("downloadUrl").takeIf{it.isNotBlank()}; runOnUiThread { status.text=if(code>BuildConfig.VERSION_CODE) "نسخه جدید ${j.optString("versionName")} موجود است." else "آخرین نسخه نصب است." } }.onFailure { runOnUiThread { status.text="بررسی نسخه انجام نشد." } } }.start() })
+        root.addView(button("صفحه دریافت نسخه") { url?.let { runCatching { startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(it))) } } ?: run { status.text="ابتدا بررسی نسخه را اجرا کنید." } })
+        scroll(root)
+    }
+
+    private fun aboutUs() { val root=page("درباره ما","👥"); root.addView(spacer(24)); root.addView(center("گروه توسعه فناوری و نرم افزاری as Team",20,true,woodDark)); root.addView(center("طراحی و توسعه ابزارهای کاربردی، سبک و قابل توسعه برای کاربران فارسی‌زبان.",14,false,ink)); scroll(root) }
+    private fun contact() { val root=page("ارتباط با ما","✉️"); root.addView(card("پشتیبانی","برای گزارش خطا، پیشنهاد فرمول یا قابلیت جدید با ما در ارتباط باشید.",soft[2])); root.addView(button("ارسال ایمیل") { runCatching { startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("mailto:AS.Support.info@Gmail.com"))) } }); root.addView(spacer(120)); root.addView(divider()); root.addView(center("گروه توسعه فناوری و نرم افزاری as Team",16,true,ink)); root.addView(center("AS.Support.info@Gmail.com",14,false,wood)); scroll(root) }
+    private fun aboutSoftware() { val root=page("درباره نرم‌افزار","🧰"); root.addView(center("دستیار هوشمند کابینت‌سازی",21,true,woodDark)); root.addView(center("جعبه‌ابزار تخصصی محاسبات کابینت، کمد و MDF؛ از لیست برش و مواد مصرفی تا یراق، دستمزد و قیمت نهایی پروژه.",14,false,ink)); root.addView(center("نسخه ${BuildConfig.VERSION_NAME}",16,true,ink)); scroll(root) }
+
+    /** Drawer استاندارد پروژه: پروفایل بالا، گزینه‌های اختصاصی، ارتباط و About. */
+    private fun drawer() {
+        val body=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(18),dp(20),dp(18),dp(20)); setBackgroundColor(Color.WHITE) }
+        val image=ImageView(this).apply { scaleType=ImageView.ScaleType.CENTER_CROP; background=GradientDrawable().apply{shape=GradientDrawable.OVAL;setColor(Color.rgb(236,222,205))}; clipToOutline=true; outlineProvider=object:ViewOutlineProvider(){override fun getOutline(v:View,o:Outline){o.setOval(0,0,v.width,v.height)}}; setOnClickListener{pickProfile()} }
+        store.profileUri()?.let { runCatching { image.setImageURI(Uri.parse(it)) } }
+        if(image.drawable==null) image.setImageResource(android.R.drawable.ic_menu_camera)
+        body.addView(image,LinearLayout.LayoutParams(dp(96),dp(96)).apply{gravity=Gravity.CENTER_HORIZONTAL})
+        body.addView(center("👤  ${store.userName()}",16,true,ink).apply{setOnClickListener{editName()}})
+        body.addView(center("برای تغییر عکس روی تصویر بزنید",11,false,Color.GRAY)); body.addView(divider())
+        lateinit var popup:PopupWindow
+        fun item(icon:String,label:String,action:()->Unit){body.addView(drawerRow(icon,label){popup.dismiss();action()})}
+        popup=PopupWindow(body,(resources.displayMetrics.widthPixels*0.86).toInt(),LinearLayout.LayoutParams.MATCH_PARENT,true).apply{setBackgroundDrawable(ColorDrawable(Color.WHITE));isOutsideTouchable=true;elevation=dp(18).toFloat()}
+        item("🏠","خانه"){history.clear();render(Screen.HOME)}; item("🛠️","ابزارهای تخصصی"){go(Screen.TOOLS)}; item("📁","پروژه‌های من"){go(Screen.PROJECTS)}; item("⚙️","تنظیمات"){go(Screen.SETTINGS)}; item("🔄","بروزرسانی"){go(Screen.UPDATE)}
+        body.addView(divider()); item("✉️","ارتباط با ما"){go(Screen.CONTACT)}; item("👥","درباره ما"){go(Screen.ABOUT)}; item("🧰","درباره نرم‌افزار"){go(Screen.SOFTWARE)}; item("📤","معرفی به دوستان"){share()}; body.addView(center("نسخه ${BuildConfig.VERSION_NAME}",11,false,Color.GRAY))
+        popup.showAtLocation(window.decorView,Gravity.RIGHT or Gravity.TOP,0,0)
+    }
+
+    private fun pickProfile(){ startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{type="image/*";addCategory(Intent.CATEGORY_OPENABLE);addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)},REQUEST_PROFILE) }
+    private fun editName(){ val input=EditText(this).apply{hint="نام کاربر";if(store.userName()!="کاربر")setText(store.userName())}; AlertDialog.Builder(this).setTitle("نام کاربر").setView(input).setPositiveButton("ذخیره"){_,_->store.setUserName(input.text.toString().trim())}.setNegativeButton("انصراف",null).show() }
+    private fun share(){ val intent=Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_SUBJECT,"دستیار هوشمند کابینت‌سازی");putExtra(Intent.EXTRA_TEXT,"دستیار هوشمند کابینت‌سازی؛ ابزار محاسبات کابینت و MDF\nhttps://github.com/waxew/App-MDFchi")}; startActivity(Intent.createChooser(intent,"معرفی برنامه")) }
+
+    /** Converter به Spinner نیاز دارد؛ برای آن صفحه را بعد از ساخت فیلد استاندارد تکمیل می‌کنیم. */
+    private fun buildFields(parent:LinearLayout,specs:List<FieldSpec>,initial:Map<String,String>):Map<String,EditText>{
+        val out=linkedMapOf<String,EditText>()
+        specs.forEach { s-> parent.addView(label(s.label)); val e=EditText(this).apply{hint=s.hint;setHintTextColor(Color.rgb(160,150,142));setText(initial[s.key].orEmpty());textSize=15f;setTextColor(ink);textDirection=View.TEXT_DIRECTION_RTL;gravity=Gravity.RIGHT or Gravity.CENTER_VERTICAL;setPadding(dp(14),dp(8),dp(14),dp(8));background=rounded(Color.WHITE,14,Color.rgb(213,195,178));inputType=if(s.key=="name")InputType.TYPE_CLASS_TEXT else InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED}; parent.addView(e,LinearLayout.LayoutParams(-1,dp(54)).apply{setMargins(0,0,0,dp(8))}); out[s.key]=e }
+        return out
+    }
+
+    /** برای Converter چون Spinner جزو Map فیلدها نیست، محاسبه آن جدا انجام می‌شود. */
+    private fun converterOutput(value:Double,spinner:Spinner):ToolOutput{ val unit=when(spinner.selectedItemPosition){0->"mm";1->"cm";else->"m"}; val d=CabinetEngine.convertLength(value,unit); return ToolOutput(listOf("میلی‌متر" to "${fmt(d["mm"])} mm","سانتی‌متر" to "${fmt(d["cm"])} cm","متر" to "${fmt(d["m"])} m")) }
+
+    /** FieldSpec helper. */
+    private fun f(k:String,l:String,h:String,integer:Boolean=false,optional:Boolean=false)=FieldSpec(k,l,h,integer,optional)
+
+    /** خروجی CSV با Storage Access Framework. */
+    private fun exportCsv(name:String,pieces:List<CutPiece>){ if(pieces.isEmpty())return toast("لیست برش خالی است."); pendingCsv=buildString{appendLine("پروژه,$name");appendLine("قطعه,طول_cm,عرض_cm,تعداد,متریال,PVC_m,توضیح");pieces.forEach{appendLine("\"${it.name}\",${fmt(it.lengthCm)},${fmt(it.widthCm)},${it.quantity},\"${it.material}\",${fmt(it.pvcMeters())},\"${it.note}\"")}}; val safe=name.replace(Regex("[^\u0600-\u06FFa-zA-Z0-9_-]+"),"_").ifBlank{"cutlist"}; startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="text/csv";putExtra(Intent.EXTRA_TITLE,"$safe-cutlist.csv")},REQUEST_CSV) }
+
+    // ---------- UI helpers ----------
+    private fun card(title:String,subtitle:String,bg:Int,action:(()->Unit)?=null):View=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(15),dp(13),dp(15),dp(13));background=rounded(bg,18);isClickable=action!=null;isFocusable=action!=null;if(action!=null)setOnClickListener{action()};layoutParams=LinearLayout.LayoutParams(-1,-2).apply{setMargins(0,dp(5),0,dp(5))};addView(text(title,17,true,ink));addView(text(subtitle,13,false,Color.rgb(92,82,74)))}
+    private fun resultCard(t:String,v:String)=card(t,v,Color.WHITE)
+    private fun button(t:String,a:()->Unit)=Button(this).apply{text=t;textSize=14f;setTextColor(Color.WHITE);isAllCaps=false;background=rounded(wood,15);setOnClickListener{a()};layoutParams=LinearLayout.LayoutParams(-1,dp(52)).apply{setMargins(0,dp(6),0,dp(6))}}
+    private fun small(t:String,a:()->Unit)=TextView(this).apply{text=t;textSize=27f;setTextColor(wood);gravity=Gravity.CENTER;background=rounded(Color.rgb(255,239,220),14);setOnClickListener{a()}}
+    private fun drawerRow(icon:String,title:String,a:()->Unit)=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;layoutDirection=View.LAYOUT_DIRECTION_RTL;setPadding(dp(10),dp(8),dp(10),dp(8));background=rounded(Color.rgb(255,250,244),14);setOnClickListener{a()};layoutParams=LinearLayout.LayoutParams(-1,dp(52));addView(text(icon,21,false,ink).apply{gravity=Gravity.CENTER},LinearLayout.LayoutParams(dp(40),-1));addView(text(title,15,true,ink).apply{gravity=Gravity.CENTER_VERTICAL or Gravity.RIGHT},LinearLayout.LayoutParams(0,-1,1f))}
+    private fun text(v:String,s:Int,b:Boolean,c:Int)=TextView(this).apply{text=v;textSize=s.toFloat();setTextColor(c);gravity=Gravity.RIGHT;textDirection=View.TEXT_DIRECTION_RTL;if(b)setTypeface(typeface,Typeface.BOLD);setLineSpacing(0f,1.12f)}
+    private fun center(v:String,s:Int,b:Boolean,c:Int)=text(v,s,b,c).apply{gravity=Gravity.CENTER_HORIZONTAL;textAlignment=View.TEXT_ALIGNMENT_CENTER;setPadding(dp(8),dp(5),dp(8),dp(5))}
+    private fun label(v:String)=text(v,13,true,ink).apply{setPadding(dp(4),dp(4),dp(4),dp(4))}
+    private fun section(v:String)=text(v,17,true,woodDark).apply{setPadding(0,dp(14),0,dp(6))}
+    private fun rounded(fill:Int,radius:Int,stroke:Int?=null)=GradientDrawable().apply{shape=GradientDrawable.RECTANGLE;setColor(fill);cornerRadius=dp(radius).toFloat();if(stroke!=null)setStroke(dp(1),stroke)}
+    private fun divider()=View(this).apply{setBackgroundColor(Color.rgb(229,218,207));layoutParams=LinearLayout.LayoutParams(-1,dp(1))}
+    private fun spacer(h:Int)=View(this).apply{layoutParams=LinearLayout.LayoutParams(1,dp(h))}
+    private fun spacerW(w:Int)=View(this).apply{layoutParams=LinearLayout.LayoutParams(dp(w),1)}
+    private fun scroll(v:View)=setContentView(ScrollView(this).apply{setBackgroundColor(cream);addView(v)})
+    private fun error(box:LinearLayout,msg:String){box.removeAllViews();box.addView(card("ورودی نامعتبر",msg,Color.rgb(255,228,220)))}
+    private fun toast(v:String){Toast.makeText(this,v,Toast.LENGTH_SHORT).show()}
+
+    // ---------- input/format helpers ----------
+    private fun number(e:EditText,label:String):Double=e.text.toString().trim().replace('٫','.').replace(',','.').toDoubleOrNull()?.takeIf{it>=0}?:throw IllegalArgumentException("$label را وارد کنید.")
+    private fun integer(e:EditText,label:String):Int=e.text.toString().trim().toIntOrNull()?.takeIf{it>=0}?:throw IllegalArgumentException("$label را به‌صورت عدد صحیح وارد کنید.")
+    private fun numOr(e:EditText,d:Double)=e.text.toString().trim().replace('٫','.').replace(',','.').toDoubleOrNull()?:d
+    private fun intOr(e:EditText,d:Int)=e.text.toString().trim().toIntOrNull()?:d
+    private fun fmt(v:Double?):String{val n=v?:0.0;return if(abs(n-n.roundToInt())<0.0001)n.roundToInt().toString() else String.format(Locale.US,"%.2f",n)}
+    private fun money(v:Double)=NumberFormat.getIntegerInstance(Locale("fa","IR")).format(v.toLong())
+    private fun date(t:Long)=SimpleDateFormat("yyyy/MM/dd",Locale.US).format(Date(t))
+    private fun dp(v:Int)=(v*resources.displayMetrics.density).toInt()
+
+    companion object { private const val REQUEST_PROFILE=1001; private const val REQUEST_CSV=1002 }
 }
