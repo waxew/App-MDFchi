@@ -8,7 +8,7 @@
         android:allowBackup="true"
         android:enableOnBackInvokedCallback="false"
         android:icon="@drawable/ic_app_icon"
-        android:label="دستیار هوشمند کابینت‌سازی"
+        android:label="دستیار هوشمند کابینتسازی"
         android:roundIcon="@drawable/ic_app_icon"
         android:supportsRtl="true"
         android:theme="@style/Theme.MDFchi">
