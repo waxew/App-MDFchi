@@ -1,35 +1,44 @@
-# راهنمای سورس — نسخه 2.0.0
-
-این فایل برای کسی نوشته شده که پروژه را در Android Studio باز می‌کند و می‌خواهد سریع بفهمد هر بخش چه کاری انجام می‌دهد.
+# راهنمای سورس — دستیار هوشمند کابینتسازی 3.0.0
 
 ## فایل‌های Kotlin
 
 ### `MainActivity.kt`
-رابط کاربری Native Android، صفحات، Navigation/Back Stack، Drawer، پروفایل، فرم‌های ابزارها، پروژه‌ها و خروجی CSV را مدیریت می‌کند. هر ورودی به‌صورت Label بالای کادر و Hint کم‌رنگ داخل کادر ساخته می‌شود.
+UI برنامه، Navigation، Back Stack، Drawer، فرم‌ها، Project Search، Settings، CSV/PDF و Backup/Restore را مدیریت می‌کند. فرم پروژه جدید هیچ مقدار نمونه واقعی ندارد و تنها از Hint استفاده می‌کند.
 
 ### `CabinetEngine.kt`
-موتور مستقل محاسبات است. فرمول‌های کابینت زمینی، دیواری، کمد، یونیت ایستاده، درب، کشو، لولا، طبقه، پشت‌بند، صفحه، MDF، ورق، PVC، پرت، قیمت، یراق، دستمزد و تبدیل واحد در این فایل قرار دارند. این فایل عمداً Android UI import ندارد.
+تمام فرمول‌های کابینت و ابزارهای تخصصی در این فایل قرار دارند. این فایل تا حد امکان مستقل از Android UI نگه داشته شده تا تست عددی ساده باشد.
 
 ### `Models.kt`
-مدل‌های `CabinetType`، `CutPiece`، `CalculationResult` و `ProjectRecord` را تعریف می‌کند. سریال‌سازی JSON و مهاجرت مدل پروژه قدیمی نیز اینجاست.
+مدل‌های `CabinetType`، `CutPiece`، `CalculationResult` و `ProjectRecord` و Serialization پروژه را تعریف می‌کند.
 
 ### `ProjectStore.kt`
-SharedPreferences را مدیریت می‌کند. پروژه‌های نسخه 2 را ذخیره و داده `projects` نسخه 1.x را در اولین بار به `projects_v2` مهاجرت می‌دهد. نام/عکس پروفایل و تنظیمات اعلان نیز اینجا نگه داشته می‌شوند.
+ذخیره‌سازی SharedPreferences، Migration نسخه 1.x، تنظیمات کارگاه، Backup و Restore JSON را انجام می‌دهد.
 
-## فایل‌های Android
+### `CutOptimizer.kt`
+موتور مستقل چیدمان قطعات MDF روی ورق. از Heuristic نوع Best Short Side Fit استفاده می‌کند و Kerf/Rotation را لحاظ می‌کند. کد مستقل پروژه است.
 
-### `AndroidManifest.xml`
-Permission اینترنت برای Update Checker، نام برنامه، آیکون، Theme و Activity Launcher را تعریف می‌کند.
+### `NestingView.kt`
+نتیجه Optimizer را با Canvas Android به شکل نمودار ورق و قطعات نمایش می‌دهد. هیچ منطق محاسباتی اصلی داخل View نیست.
 
-### `app/build.gradle.kts`
-Application ID ثابت، minSdk/targetSdk و نسخه `2.0.0 / 20` را نگه می‌دارد.
+### `ReportExporter.kt`
+گزارش PDF پروژه را با `PdfDocument` و `StaticLayout` می‌سازد. اطلاعات پروژه، Cut List، راندمان و نکات را صفحه‌بندی می‌کند.
 
-### `ic_app_icon.xml`
-آیکون Vector برنامه است؛ روی DPIهای مختلف بدون افت کیفیت مقیاس می‌شود.
+## داده و Update
+- SharedPreferences اصلی: `mdfchi_projects`
+- پروژه‌های جدید: کلید `projects_v2`
+- پروژه‌های نسخه 1.x: کلید `projects` و Migration خودکار
+- Application ID: `com.mdfchi.app`
+- نسخه فعلی: `3.0.0` / `versionCode 30`
 
-### `styles.xml`
-Theme روشن و رنگ‌های Status/Navigation bar را تعریف می‌کند.
+## Signing
+Signing Key خصوصی نباید وارد GitHub عمومی شود. بسته خصوصی انتشار شامل Key، Passwordها، Fingerprintها و `info.txt` است. نسخه‌های بعدی باید با همان Key امضا شوند.
 
-## انتشار
-
-`.github/workflows/android-apk.yml` روی GitHub Actions یک APK Release بدون امضا می‌سازد. Signing Key خصوصی نباید در ریپوی Public قرار گیرد. خروجی نهایی باید با Key موجود در بسته خصوصی پروژه امضا و با `apksigner verify` کنترل شود.
+## تست‌های مهم قبل از انتشار بعدی
+1. Build Release در GitHub Actions
+2. Verify v1/v2/v3 signature
+3. تطابق Certificate با نسخه قبلی
+4. تست محاسبات کابینت و Cut Optimizer
+5. تست Backup/Restore
+6. تست CSV/PDF روی دستگاه
+7. تست Back Stack و Drawer
+8. افزایش versionCode
