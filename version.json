@@ -1,8 +1,7 @@
 {
-  "versionCode": 20,
-  "versionName": "2.0.0",
-  "appName": "دستیار هوشمند کابینت‌سازی",
-  "message": "نسخه ۲.۰ با موتور محاسبات تخصصی کابینت، پروژه‌های قابل ویرایش و کپی، خروجی CSV، فرم‌های Label + Hint و منوی پروفایل‌دار منتشر شد.",
+  "versionCode": 30,
+  "versionName": "3.0.0",
+  "message": "نسخه ۳.۰.۰: بهینه‌ساز برش ورق، نمودار چیدمان، PDF، Backup/Restore، جست‌وجوی پروژه و پشتیبانی از اعداد فارسی.",
   "downloadUrl": "https://github.com/waxew/App-MDFchi/releases",
-  "note": "Application ID و Signing Key نسبت به نسخه‌های 1.x ثابت مانده‌اند تا بروزرسانی روی نسخه قبلی انجام شود."
+  "note": "versionCode معیار اصلی تشخیص بروزرسانی است. Application ID و Signing Key برای نصب روی نسخه‌های قبلی ثابت مانده‌اند."
 }
