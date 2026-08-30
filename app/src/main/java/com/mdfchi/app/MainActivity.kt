@@ -11,7 +11,9 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewOutlineProvider
@@ -38,13 +40,16 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Activity اصلی «دستیار هوشمند کابینت‌سازی» نسخه 2.0.0.
+ * Activity اصلی «دستیار هوشمند کابینتسازی» نسخه 3.0.0.
  * UI با Android Views استاندارد ساخته شده و موتور محاسبات، مدل‌ها و ذخیره‌سازی در فایل‌های جدا قرار دارند.
  */
 class MainActivity : Activity() {
 
     /** صفحات اصلی برنامه. */
-    private enum class Screen { HOME, TOOLS, CABINET, TOOL, PROJECTS, PROJECT, SETTINGS, UPDATE, ABOUT, CONTACT, SOFTWARE }
+    private enum class Screen {
+        HOME, TOOLS, CABINET, TOOL, PROJECTS, PROJECT, OPTIMIZER,
+        SETTINGS, UPDATE, ABOUT, CONTACT, SOFTWARE
+    }
 
     /** ابزارهای تخصصی غیر از چهار نوع یونیت. */
     private enum class SmartTool(val label: String, val emoji: String, val subtitle: String) {
@@ -81,6 +86,8 @@ class MainActivity : Activity() {
     private var lastCalculation: CalculationResult? = null
     private var lastValues: Map<String, String> = emptyMap()
     private var pendingCsv: String? = null
+    // پروژه‌ای که برای خروجی PDF انتخاب شده تا پس از برگشت از Document Picker مشخص بماند.
+    private var pendingPdfProject: ProjectRecord? = null
 
     // رنگ‌های هویت بصری فانتزی/کارگاهی.
     private val wood = Color.rgb(126, 83, 55)
@@ -109,13 +116,18 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK) return
+
         when (requestCode) {
             REQUEST_PROFILE -> data?.data?.let { uri ->
-                runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                // مجوز Uri عکس پروفایل برای اجراهای بعدی برنامه Persist می‌شود.
+                runCatching {
+                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
                 store.setProfileUri(uri.toString())
-                Toast.makeText(this, "عکس پروفایل ذخیره شد.", Toast.LENGTH_SHORT).show()
+                toast("عکس پروفایل ذخیره شد.")
                 render(current)
             }
+
             REQUEST_CSV -> {
                 val uri = data?.data ?: return
                 val csv = pendingCsv ?: return
@@ -125,12 +137,56 @@ class MainActivity : Activity() {
                         it.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
                         it.write(csv.toByteArray(Charsets.UTF_8))
                     }
-                }.onSuccess { Toast.makeText(this, "لیست برش ذخیره شد.", Toast.LENGTH_SHORT).show() }
-                    .onFailure { Toast.makeText(this, "ذخیره فایل انجام نشد.", Toast.LENGTH_SHORT).show() }
+                }.onSuccess { toast("لیست برش ذخیره شد.") }
+                    .onFailure { toast("ذخیره فایل انجام نشد.") }
                 pendingCsv = null
+            }
+
+            REQUEST_PDF -> {
+                // گزارش PDF بعد از انتخاب مقصد توسط کاربر ساخته می‌شود.
+                val uri = data?.data ?: return
+                val project = pendingPdfProject ?: return
+                runCatching {
+                    ReportExporter.writeProjectPdf(this, uri, project, optimizeProject(project))
+                }.onSuccess { toast("گزارش PDF ذخیره شد.") }
+                    .onFailure { toast("ساخت PDF انجام نشد: ${it.message.orEmpty()}") }
+                pendingPdfProject = null
+            }
+
+            REQUEST_BACKUP_CREATE -> {
+                // Backup کامل پروژه‌ها و تنظیمات به JSON نوشته می‌شود.
+                val uri = data?.data ?: return
+                runCatching {
+                    contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { writer ->
+                        writer.write(store.backupJson())
+                    }
+                }.onSuccess { toast("فایل پشتیبان ذخیره شد.") }
+                    .onFailure { toast("ساخت پشتیبان انجام نشد.") }
+            }
+
+            REQUEST_BACKUP_OPEN -> {
+                val uri = data?.data ?: return
+                val raw = runCatching {
+                    contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                }.getOrNull()
+
+                if (raw.isNullOrBlank()) {
+                    toast("فایل پشتیبان قابل خواندن نیست.")
+                    return
+                }
+
+                // Merge برای حفظ پروژه‌های فعلی و Replace برای بازیابی کامل در نظر گرفته شده است.
+                AlertDialog.Builder(this)
+                    .setTitle("بازیابی اطلاعات")
+                    .setMessage("پروژه‌های فایل پشتیبان با اطلاعات فعلی ادغام شوند یا جایگزین شوند؟")
+                    .setPositiveButton("ادغام") { _, _ -> restoreBackup(raw, true) }
+                    .setNeutralButton("جایگزینی") { _, _ -> restoreBackup(raw, false) }
+                    .setNegativeButton("انصراف", null)
+                    .show()
             }
         }
     }
+
 
     /** ثبت صفحه فعلی و رفتن به مقصد. */
     private fun go(screen: Screen) {
@@ -158,6 +214,7 @@ class MainActivity : Activity() {
             Screen.TOOL -> toolForm()
             Screen.PROJECTS -> projects()
             Screen.PROJECT -> projectDetail()
+            Screen.OPTIMIZER -> optimizerPage()
             Screen.SETTINGS -> settings()
             Screen.UPDATE -> updatePage()
             Screen.ABOUT -> aboutUs()
@@ -187,7 +244,7 @@ class MainActivity : Activity() {
 
     /** خانه؛ چهار یونیت اصلی + ابزارها + پروژه‌ها. */
     private fun home() {
-        val root = page("دستیار هوشمند کابینت‌سازی", "🧰")
+        val root = page("دستیار هوشمند کابینتسازی", "🧰")
         root.addView(text("محاسبه، برآورد و مدیریت پروژه برای کابینت‌سازها و MDFکارها", 14, false, ink))
         root.addView(card("🪚  📏  🔩  🪛  🪵", "از ابعاد یونیت تا لیست برش، ورق، PVC، یراق و قیمت نهایی", Color.rgb(255, 242, 220)))
         root.addView(section("محاسبات اصلی"))
@@ -196,6 +253,7 @@ class MainActivity : Activity() {
         }
         root.addView(button("همه ابزارهای تخصصی") { go(Screen.TOOLS) })
         root.addView(button("پروژه‌های ذخیره‌شده") { go(Screen.PROJECTS) })
+        root.addView(card("🧩 بهینه‌ساز برش ورق", "چیدمان قطعات با Kerf، Rotation و نمودار هر ورق", soft[1]) { openLatestOptimizer() })
         root.addView(card("🤖 پیشنهاد دستیار", "بعد از محاسبه، نکات ساخت، تعداد تقریبی ورق و راندمان اولیه هم نمایش داده می‌شود.", Color.WHITE))
         scroll(root)
     }
@@ -399,14 +457,71 @@ class MainActivity : Activity() {
         }
     }
 
-    /** پروژه‌های ذخیره‌شده و مهاجرت‌شده. */
+    /** پروژه‌های ذخیره‌شده با جست‌وجوی لحظه‌ای نام و نوع پروژه. */
     private fun projects() {
         val root = page("پروژه‌های من", "📁")
-        val list = store.loadProjects().sortedByDescending { it.updatedAt }
-        if (list.isEmpty()) root.addView(card("هنوز پروژه‌ای نیست", "از یکی از چهار نوع یونیت یک پروژه بسازید.", Color.WHITE))
-        list.forEach { p -> root.addView(card("${p.type.emoji} ${p.name}", "${p.type.label} • ${date(p.updatedAt)}\n${p.cutList.size} ردیف لیست برش", Color.WHITE) { selectedProject=p; go(Screen.PROJECT) }) }
+        val all = store.loadProjects().sortedByDescending { it.updatedAt }
+
+        root.addView(label("جست‌وجوی پروژه"))
+        val search = EditText(this).apply {
+            hint = "نام پروژه یا نوع کابینت را بنویسید"
+            setHintTextColor(Color.rgb(160, 150, 142))
+            setTextColor(ink)
+            textDirection = View.TEXT_DIRECTION_RTL
+            gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = rounded(Color.WHITE, 14, Color.rgb(213, 195, 178))
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
+        root.addView(search, fieldParams())
+
+        val listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(listBox)
+
+        fun renderList(query: String) {
+            listBox.removeAllViews()
+            val normalized = query.trim().lowercase(Locale.getDefault())
+            val filtered = if (normalized.isBlank()) all else all.filter { project ->
+                project.name.lowercase(Locale.getDefault()).contains(normalized) ||
+                    project.type.label.lowercase(Locale.getDefault()).contains(normalized)
+            }
+
+            if (filtered.isEmpty()) {
+                listBox.addView(
+                    card(
+                        if (all.isEmpty()) "هنوز پروژه‌ای نیست" else "نتیجه‌ای پیدا نشد",
+                        if (all.isEmpty()) "از یکی از چهار نوع یونیت یک پروژه بسازید." else "عبارت جست‌وجو را تغییر دهید.",
+                        Color.WHITE
+                    )
+                )
+            }
+
+            filtered.forEach { project ->
+                listBox.addView(
+                    card(
+                        "${project.type.emoji} ${project.name}",
+                        "${project.type.label} • ${date(project.updatedAt)}\n${project.cutList.size} ردیف لیست برش",
+                        Color.WHITE
+                    ) {
+                        selectedProject = project
+                        go(Screen.PROJECT)
+                    }
+                )
+            }
+        }
+
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                renderList(s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+
+        renderList("")
         scroll(root)
     }
+
 
     /** نمایش، ویرایش، کپی، حذف و خروجی پروژه. */
     private fun projectDetail() {
@@ -420,20 +535,73 @@ class MainActivity : Activity() {
         p.cutList.forEach { part -> root.addView(card(part.name,"${fmt(part.lengthCm)} × ${fmt(part.widthCm)} cm | ${part.quantity} عدد | ${part.material}",Color.WHITE)) }
         root.addView(button("ویرایش پروژه") { cabinetType=if(p.type==CabinetType.LEGACY) CabinetType.FLOOR else p.type; editingProject=p; lastValues=p.values; lastCalculation=null; go(Screen.CABINET) })
         root.addView(button("کپی پروژه") { selectedProject=store.copy(p); toast("کپی پروژه ساخته شد."); render(Screen.PROJECT) })
+        root.addView(button("بهینه‌سازی برش روی ورق") { go(Screen.OPTIMIZER) })
+        root.addView(button("گزارش PDF پروژه") { exportPdf(p) })
         root.addView(button("خروجی CSV") { exportCsv(p.name,p.cutList) })
         root.addView(button("حذف پروژه") { AlertDialog.Builder(this).setTitle("حذف پروژه").setMessage("پروژه «${p.name}» حذف شود؟").setPositiveButton("حذف") { _,_-> store.delete(p.id); selectedProject=null; render(Screen.PROJECTS) }.setNegativeButton("انصراف",null).show() })
         scroll(root)
     }
 
-    /** تنظیمات ساده و قابل توسعه. */
+    /** تنظیمات اعلان‌ها، ورق، تیغه و Backup/Restore. */
     private fun settings() {
-        val root=page("تنظیمات","⚙️")
-        root.addView(Switch(this).apply { text="اعلان‌های برنامه"; textSize=17f; setTextColor(ink); isChecked=store.notificationsEnabled(); setOnCheckedChangeListener { _,v->store.setNotificationsEnabled(v) } })
-        root.addView(Switch(this).apply { text="اعلان انتشار نسخه جدید"; textSize=16f; setTextColor(ink); isChecked=store.updateAlertsEnabled(); setOnCheckedChangeListener { _,v->store.setUpdateAlertsEnabled(v) } })
-        root.addView(card("اطلاعات پروژه‌ها","پروژه‌ها محلی هستند و هنگام Update باقی می‌مانند.",Color.WHITE))
-        root.addView(button("تنظیمات سیستمی برنامه") { runCatching { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:$packageName"))) } })
+        val root = page("تنظیمات", "⚙️")
+
+        root.addView(Switch(this).apply {
+            text = "اعلان‌های برنامه"
+            textSize = 17f
+            setTextColor(ink)
+            isChecked = store.notificationsEnabled()
+            setOnCheckedChangeListener { _, value -> store.setNotificationsEnabled(value) }
+        })
+        root.addView(Switch(this).apply {
+            text = "اعلان انتشار نسخه جدید"
+            textSize = 16f
+            setTextColor(ink)
+            isChecked = store.updateAlertsEnabled()
+            setOnCheckedChangeListener { _, value -> store.setUpdateAlertsEnabled(value) }
+        })
+
+        root.addView(section("تنظیمات کارگاه و بهینه‌ساز"))
+        root.addView(label("عرض ورق پیش‌فرض (cm)"))
+        val sheetWidth = settingField(fmt(store.sheetWidthCm()), "مثال: 183")
+        root.addView(sheetWidth, fieldParams())
+        root.addView(label("طول ورق پیش‌فرض (cm)"))
+        val sheetLength = settingField(fmt(store.sheetLengthCm()), "مثال: 366")
+        root.addView(sheetLength, fieldParams())
+        root.addView(label("ضخامت برش تیغه / Kerf (mm)"))
+        val kerf = settingField(fmt(store.kerfMm()), "مثال: 3.2")
+        root.addView(kerf, fieldParams())
+        val rotation = Switch(this).apply {
+            text = "اجازه چرخش ۹۰ درجه قطعات در چیدمان"
+            textSize = 15f
+            setTextColor(ink)
+            isChecked = store.allowRotation()
+        }
+        root.addView(rotation)
+        root.addView(button("ذخیره تنظیمات کارگاه") {
+            runCatching {
+                store.setWorkshopSettings(
+                    sheetWidthCm = number(sheetWidth, "عرض ورق"),
+                    sheetLengthCm = number(sheetLength, "طول ورق"),
+                    kerfMm = number(kerf, "Kerf"),
+                    allowRotation = rotation.isChecked
+                )
+            }.onSuccess { toast("تنظیمات کارگاه ذخیره شد.") }
+                .onFailure { toast(it.message ?: "تنظیمات معتبر نیستند.") }
+        })
+
+        root.addView(section("پشتیبان‌گیری اطلاعات"))
+        root.addView(card("اطلاعات پروژه‌ها", "پروژه‌ها محلی هستند، هنگام Update باقی می‌مانند و Backup قابل حمل دارند.", Color.WHITE))
+        root.addView(button("تهیه فایل پشتیبان JSON") { createBackupFile() })
+        root.addView(button("بازیابی فایل پشتیبان") { openBackupFile() })
+        root.addView(button("تنظیمات سیستمی برنامه") {
+            runCatching {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            }
+        })
         scroll(root)
     }
+
 
     /** Update Checker عمومی GitHub. */
     private fun updatePage() {
@@ -448,36 +616,284 @@ class MainActivity : Activity() {
     }
 
     private fun aboutUs() { val root=page("درباره ما","👥"); root.addView(spacer(24)); root.addView(center("گروه توسعه فناوری و نرم افزاری as Team",20,true,woodDark)); root.addView(center("طراحی و توسعه ابزارهای کاربردی، سبک و قابل توسعه برای کاربران فارسی‌زبان.",14,false,ink)); scroll(root) }
-    private fun contact() { val root=page("ارتباط با ما","✉️"); root.addView(card("پشتیبانی","برای گزارش خطا، پیشنهاد فرمول یا قابلیت جدید با ما در ارتباط باشید.",soft[2])); root.addView(button("ارسال ایمیل") { runCatching { startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("mailto:AS.Support.info@Gmail.com"))) } }); root.addView(spacer(120)); root.addView(divider()); root.addView(center("گروه توسعه فناوری و نرم افزاری as Team",16,true,ink)); root.addView(center("AS.Support.info@Gmail.com",14,false,wood)); scroll(root) }
-    private fun aboutSoftware() { val root=page("درباره نرم‌افزار","🧰"); root.addView(center("دستیار هوشمند کابینت‌سازی",21,true,woodDark)); root.addView(center("جعبه‌ابزار تخصصی محاسبات کابینت، کمد و MDF؛ از لیست برش و مواد مصرفی تا یراق، دستمزد و قیمت نهایی پروژه.",14,false,ink)); root.addView(center("نسخه ${BuildConfig.VERSION_NAME}",16,true,ink)); scroll(root) }
-
-    /** Drawer استاندارد پروژه: پروفایل بالا، گزینه‌های اختصاصی، ارتباط و About. */
-    private fun drawer() {
-        val body=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(18),dp(20),dp(18),dp(20)); setBackgroundColor(Color.WHITE) }
-        val image=ImageView(this).apply { scaleType=ImageView.ScaleType.CENTER_CROP; background=GradientDrawable().apply{shape=GradientDrawable.OVAL;setColor(Color.rgb(236,222,205))}; clipToOutline=true; outlineProvider=object:ViewOutlineProvider(){override fun getOutline(v:View,o:Outline){o.setOval(0,0,v.width,v.height)}}; setOnClickListener{pickProfile()} }
-        store.profileUri()?.let { runCatching { image.setImageURI(Uri.parse(it)) } }
-        if(image.drawable==null) image.setImageResource(android.R.drawable.ic_menu_camera)
-        body.addView(image,LinearLayout.LayoutParams(dp(96),dp(96)).apply{gravity=Gravity.CENTER_HORIZONTAL})
-        body.addView(center("👤  ${store.userName()}",16,true,ink).apply{setOnClickListener{editName()}})
-        body.addView(center("برای تغییر عکس روی تصویر بزنید",11,false,Color.GRAY)); body.addView(divider())
-        lateinit var popup:PopupWindow
-        fun item(icon:String,label:String,action:()->Unit){body.addView(drawerRow(icon,label){popup.dismiss();action()})}
-        popup=PopupWindow(body,(resources.displayMetrics.widthPixels*0.86).toInt(),LinearLayout.LayoutParams.MATCH_PARENT,true).apply{setBackgroundDrawable(ColorDrawable(Color.WHITE));isOutsideTouchable=true;elevation=dp(18).toFloat()}
-        item("🏠","خانه"){history.clear();render(Screen.HOME)}; item("🛠️","ابزارهای تخصصی"){go(Screen.TOOLS)}; item("📁","پروژه‌های من"){go(Screen.PROJECTS)}; item("⚙️","تنظیمات"){go(Screen.SETTINGS)}; item("🔄","بروزرسانی"){go(Screen.UPDATE)}
-        body.addView(divider()); item("✉️","ارتباط با ما"){go(Screen.CONTACT)}; item("👥","درباره ما"){go(Screen.ABOUT)}; item("🧰","درباره نرم‌افزار"){go(Screen.SOFTWARE)}; item("📤","معرفی به دوستان"){share()}; body.addView(center("نسخه ${BuildConfig.VERSION_NAME}",11,false,Color.GRAY))
-        popup.showAtLocation(window.decorView,Gravity.RIGHT or Gravity.TOP,0,0)
+    private fun contact() { val root=page("ارتباط با ما","✉️"); root.addView(card("پشتیبانی","برای گزارش خطا، پیشنهاد فرمول یا قابلیت جدید با ما در ارتباط باشید.",soft[2])); root.addView(button("ارسال ایمیل") { runCatching { startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("mailto:AS.Developers.Support@Gmail.Com"))) } }); root.addView(spacer(120)); root.addView(divider()); root.addView(center("گروه توسعه فناوری و نرم افزاری as Team",16,true,ink)); root.addView(center("AS.Developers.Support@Gmail.Com",14,false,wood)); scroll(root) }
+    /** درباره نرم‌افزار طبق قالب نهایی مشترک؛ بدون نمایش Package Name یا اطلاعات فنی اضافی. */
+    private fun aboutSoftware() {
+        val root = page("درباره نرم‌افزار", "ℹ️")
+        root.addView(center("دستیار هوشمند کابینتسازی", 21, true, woodDark))
+        root.addView(center("یک دستیار تخصصی آفلاین برای محاسبه کابینت و کمد، مدیریت پروژه، تولید لیست برش، برآورد MDF/PVC/یراق و بهینه‌سازی چیدمان قطعات روی ورق.", 14, false, ink))
+        root.addView(center("امکانات خروجی PDF و CSV، Backup/Restore و نگهداری پروژه‌ها باعث می‌شود اطلاعات کارگاه همیشه قابل انتقال و بازیابی باشند.", 14, false, ink))
+        root.addView(spacer(14))
+        root.addView(divider())
+        root.addView(spacer(10))
+        root.addView(center("راه‌های ارتباطی با ما:", 15, true, ink))
+        root.addView(center("AS.Developers.Support@Gmail.Com", 14, false, wood))
+        root.addView(spacer(16))
+        root.addView(center("نسخه ${BuildConfig.VERSION_NAME}", 16, true, ink))
+        root.addView(spacer(90))
+        root.addView(divider())
+        root.addView(center("Develop by AS Team Group", 14, true, ink))
+        scroll(root)
     }
+
+
+    /** Drawer نهایی مشترک: پروفایل، تنظیمات/اشتراک، گزینه‌های اختصاصی و درباره نرم‌افزار. */
+    private fun drawer() {
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(20), dp(18), dp(20))
+            setBackgroundColor(Color.WHITE)
+        }
+
+        val image = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.rgb(236, 222, 205))
+            }
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setOval(0, 0, view.width, view.height)
+                }
+            }
+            setOnClickListener { pickProfile() }
+        }
+        store.profileUri()?.let { runCatching { image.setImageURI(Uri.parse(it)) } }
+        if (image.drawable == null) image.setImageResource(android.R.drawable.ic_menu_camera)
+        body.addView(image, LinearLayout.LayoutParams(dp(96), dp(96)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        body.addView(center("👤  ${store.userName()}", 16, true, ink).apply { setOnClickListener { editName() } })
+        body.addView(center("برای تغییر عکس روی تصویر بزنید", 11, false, Color.GRAY))
+        body.addView(divider())
+
+        lateinit var popup: PopupWindow
+        fun item(icon: String, label: String, action: () -> Unit) {
+            body.addView(drawerRow(icon, label) {
+                popup.dismiss()
+                action()
+            })
+        }
+
+        popup = PopupWindow(
+            body,
+            (resources.displayMetrics.widthPixels * 0.86).toInt(),
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            true
+        ).apply {
+            setBackgroundDrawable(ColorDrawable(Color.WHITE))
+            isOutsideTouchable = true
+            elevation = dp(18).toFloat()
+        }
+
+        // دو گزینه اول طبق قالب مشترک همه برنامه‌ها ثابت هستند.
+        item("⚙️", "تنظیمات") { go(Screen.SETTINGS) }
+        item("📤", "معرفی به دوستان") { share() }
+        body.addView(divider())
+
+        // گزینه‌های اختصاصی دستیار کابینتسازی.
+        item("🏠", "خانه") { history.clear(); render(Screen.HOME) }
+        item("🛠️", "ابزارهای تخصصی") { go(Screen.TOOLS) }
+        item("📁", "پروژه‌های من") { go(Screen.PROJECTS) }
+        item("🧩", "بهینه‌ساز برش") { openLatestOptimizer() }
+        item("🔄", "بروزرسانی") { go(Screen.UPDATE) }
+        body.addView(divider())
+
+        // راه‌های تماس داخل About Software قرار دارند؛ آیتم جداگانه Contact حذف شده است.
+        item("ℹ️", "درباره نرم‌افزار") { go(Screen.SOFTWARE) }
+        body.addView(center("نسخه ${BuildConfig.VERSION_NAME}", 11, false, Color.GRAY))
+        popup.showAtLocation(window.decorView, Gravity.RIGHT or Gravity.TOP, 0, 0)
+    }
+
 
     private fun pickProfile(){ startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{type="image/*";addCategory(Intent.CATEGORY_OPENABLE);addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)},REQUEST_PROFILE) }
     private fun editName(){ val input=EditText(this).apply{hint="نام کاربر";if(store.userName()!="کاربر")setText(store.userName())}; AlertDialog.Builder(this).setTitle("نام کاربر").setView(input).setPositiveButton("ذخیره"){_,_->store.setUserName(input.text.toString().trim())}.setNegativeButton("انصراف",null).show() }
-    private fun share(){ val intent=Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_SUBJECT,"دستیار هوشمند کابینت‌سازی");putExtra(Intent.EXTRA_TEXT,"دستیار هوشمند کابینت‌سازی؛ ابزار محاسبات کابینت و MDF\nhttps://github.com/waxew/App-MDFchi")}; startActivity(Intent.createChooser(intent,"معرفی برنامه")) }
+    private fun share(){ val intent=Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_SUBJECT,"دستیار هوشمند کابینتسازی");putExtra(Intent.EXTRA_TEXT,"دستیار هوشمند کابینتسازی؛ ابزار محاسبات کابینت و MDF\nhttps://github.com/waxew/App-MDFchi")}; startActivity(Intent.createChooser(intent,"معرفی برنامه")) }
 
     /** Converter به Spinner نیاز دارد؛ برای آن صفحه را بعد از ساخت فیلد استاندارد تکمیل می‌کنیم. */
-    private fun buildFields(parent:LinearLayout,specs:List<FieldSpec>,initial:Map<String,String>):Map<String,EditText>{
-        val out=linkedMapOf<String,EditText>()
-        specs.forEach { s-> parent.addView(label(s.label)); val e=EditText(this).apply{hint=s.hint;setHintTextColor(Color.rgb(160,150,142));setText(initial[s.key].orEmpty());textSize=15f;setTextColor(ink);textDirection=View.TEXT_DIRECTION_RTL;gravity=Gravity.RIGHT or Gravity.CENTER_VERTICAL;setPadding(dp(14),dp(8),dp(14),dp(8));background=rounded(Color.WHITE,14,Color.rgb(213,195,178));inputType=if(s.key=="name")InputType.TYPE_CLASS_TEXT else InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED}; parent.addView(e,LinearLayout.LayoutParams(-1,dp(54)).apply{setMargins(0,0,0,dp(8))}); out[s.key]=e }
+    private fun buildFields(
+        parent: LinearLayout,
+        specs: List<FieldSpec>,
+        initial: Map<String, String>
+    ): Map<String, EditText> {
+        val out = linkedMapOf<String, EditText>()
+        specs.forEach { spec ->
+            val labelText = if (spec.optional && !spec.label.contains("اختیاری")) {
+                "${spec.label} (اختیاری)"
+            } else {
+                spec.label
+            }
+            parent.addView(label(labelText))
+
+            val edit = EditText(this).apply {
+                hint = spec.hint
+                setHintTextColor(Color.rgb(160, 150, 142))
+                // فرم جدید خالی است؛ فقط در Edit پروژه قبلی مقدار واقعی Load می‌شود.
+                setText(initial[spec.key].orEmpty())
+                textSize = 15f
+                setTextColor(ink)
+                textDirection = View.TEXT_DIRECTION_RTL
+                gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
+                setPadding(dp(14), dp(8), dp(14), dp(8))
+                background = rounded(Color.WHITE, 14, Color.rgb(213, 195, 178))
+                inputType = when {
+                    spec.key == "name" -> InputType.TYPE_CLASS_TEXT
+                    spec.integer -> InputType.TYPE_CLASS_NUMBER
+                    else -> InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                }
+            }
+            parent.addView(edit, fieldParams())
+            out[spec.key] = edit
+        }
         return out
     }
+
+    /** باز کردن Optimizer برای آخرین پروژه ذخیره‌شده. */
+    private fun openLatestOptimizer() {
+        val latest = store.loadProjects().maxByOrNull { it.updatedAt }
+        if (latest == null) {
+            toast("ابتدا یک پروژه ذخیره کنید.")
+            return
+        }
+        selectedProject = latest
+        go(Screen.OPTIMIZER)
+    }
+
+    /** اجرای Optimizer با تنظیمات فعلی ورق و تیغه. */
+    private fun optimizeProject(project: ProjectRecord): CutOptimizationResult =
+        CutOptimizer.optimize(
+            pieces = project.cutList,
+            sheetWidthCm = store.sheetWidthCm(),
+            sheetLengthCm = store.sheetLengthCm(),
+            kerfMm = store.kerfMm(),
+            allowRotation = store.allowRotation()
+        )
+
+    /** صفحه چیدمان قطعات همراه نمودار، راندمان و مختصات. */
+    private fun optimizerPage() {
+        val project = selectedProject ?: return render(Screen.PROJECTS)
+        val root = page("بهینه‌ساز برش", "🧩")
+        root.addView(
+            card(
+                project.name,
+                "${project.type.label} • ورق ${fmt(store.sheetWidthCm())}×${fmt(store.sheetLengthCm())} cm • Kerf ${fmt(store.kerfMm())} mm",
+                soft[2]
+            )
+        )
+
+        val optimization = runCatching { optimizeProject(project) }.getOrElse {
+            root.addView(card("بهینه‌سازی انجام نشد", it.message ?: "خطای ناشناخته", Color.rgb(255, 228, 220)))
+            scroll(root)
+            return
+        }
+
+        root.addView(resultCard("تعداد ورق", "${optimization.sheets.size} ورق"))
+        root.addView(resultCard("راندمان کل", "${fmt(optimization.efficiencyPercent)}٪"))
+        root.addView(resultCard("مساحت مصرف‌شده", "${fmt(optimization.usedAreaM2)} m²"))
+        root.addView(resultCard("پرت سطحی تقریبی", "${fmt(optimization.wasteAreaM2)} m²"))
+        root.addView(resultCard("چرخش قطعات", if (optimization.allowRotation) "فعال" else "غیرفعال"))
+
+        if (optimization.unplaced.isNotEmpty()) {
+            val message = optimization.unplaced.joinToString("\n") { piece ->
+                "${piece.name}: ${fmt(piece.lengthCm)}×${fmt(piece.widthCm)} cm — ${piece.quantity} عدد"
+            }
+            root.addView(card("⚠️ قطعات خارج از ابعاد ورق", message, Color.rgb(255, 228, 220)))
+        }
+
+        root.addView(section("نمودار چیدمان"))
+        root.addView(NestingView(this, optimization), LinearLayout.LayoutParams(-1, -2))
+        root.addView(section("مختصات قطعات"))
+
+        optimization.sheets.forEach { sheet ->
+            root.addView(
+                card(
+                    "ورق ${sheet.index}",
+                    "راندمان ${fmt(sheet.efficiencyPercent())}٪ • ${sheet.placements.size} قطعه",
+                    soft[(sheet.index - 1) % soft.size]
+                )
+            )
+            sheet.placements.forEach { placement ->
+                root.addView(
+                    card(
+                        placement.source.name,
+                        "X=${fmt(placement.xCm)} • Y=${fmt(placement.yCm)} • ${fmt(placement.heightCm)}×${fmt(placement.widthCm)} cm${if (placement.rotated) " • چرخش ۹۰°" else ""}",
+                        Color.WHITE
+                    )
+                )
+            }
+        }
+
+        root.addView(button("گزارش PDF پروژه") { exportPdf(project) })
+        root.addView(button("تنظیم ابعاد ورق و Kerf") { go(Screen.SETTINGS) })
+        scroll(root)
+    }
+
+    /** شروع ساخت PDF در محل انتخائ‌شده توسط کاربر. */
+    private fun exportPdf(project: ProjectRecord) {
+        pendingPdfProject = project
+        val safe = safeFileName(project.name, "project")
+        startActivityForResult(
+            Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_TITLE, "$safe-report.pdf")
+            },
+            REQUEST_PDF
+        )
+    }
+
+    /** ساخت Backup JSON. */
+    private fun createBackupFile() {
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
+        startActivityForResult(
+            Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/json"
+                putExtra(Intent.EXTRA_TITLE, "cabinet-assistant-backup-$stamp.json")
+            },
+            REQUEST_BACKUP_CREATE
+        )
+    }
+
+    /** انتخاب Backup JSON برای بازیابی. */
+    private fun openBackupFile() {
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/json"
+            },
+            REQUEST_BACKUP_OPEN
+        )
+    }
+
+    /** بازیابی Backup و اعلام تعداد پروژه‌های خوانده‌شده. */
+    private fun restoreBackup(raw: String, merge: Boolean) {
+        runCatching { store.restoreBackup(raw, merge) }
+            .onSuccess { count ->
+                toast("$count پروژه از فایل پشتیبان بازیابی شد.")
+                render(Screen.SETTINGS)
+            }
+            .onFailure { toast("بازیابی انجام نشد: ${it.message.orEmpty()}") }
+    }
+
+    /** فیلد تنظیمات؛ اینجا مقدار واقعی فعلی عمداً نمایش داده می‌شود چون کاربر در حال Edit تنظیمات است. */
+    private fun settingField(value: String, hintText: String): EditText = EditText(this).apply {
+        hint = hintText
+        setHintTextColor(Color.rgb(160, 150, 142))
+        setText(value)
+        textSize = 15f
+        setTextColor(ink)
+        gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
+        textDirection = View.TEXT_DIRECTION_RTL
+        setPadding(dp(14), dp(8), dp(14), dp(8))
+        background = rounded(Color.WHITE, 14, Color.rgb(213, 195, 178))
+        inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+    }
+
+    /** LayoutParams مشترک کادرهای ورودی. */
+    private fun fieldParams() = LinearLayout.LayoutParams(-1, dp(54)).apply {
+        setMargins(0, 0, 0, dp(8))
+    }
+
 
     /** برای Converter چون Spinner جزو Map فیلدها نیست، محاسبه آن جدا انجام می‌شود. */
     private fun converterOutput(value:Double,spinner:Spinner):ToolOutput{ val unit=when(spinner.selectedItemPosition){0->"mm";1->"cm";else->"m"}; val d=CabinetEngine.convertLength(value,unit); return ToolOutput(listOf("میلی‌متر" to "${fmt(d["mm"])} mm","سانتی‌متر" to "${fmt(d["cm"])} cm","متر" to "${fmt(d["m"])} m")) }
@@ -486,7 +902,30 @@ class MainActivity : Activity() {
     private fun f(k:String,l:String,h:String,integer:Boolean=false,optional:Boolean=false)=FieldSpec(k,l,h,integer,optional)
 
     /** خروجی CSV با Storage Access Framework. */
-    private fun exportCsv(name:String,pieces:List<CutPiece>){ if(pieces.isEmpty())return toast("لیست برش خالی است."); pendingCsv=buildString{appendLine("پروژه,$name");appendLine("قطعه,طول_cm,عرض_cm,تعداد,متریال,PVC_m,توضیح");pieces.forEach{appendLine("\"${it.name}\",${fmt(it.lengthCm)},${fmt(it.widthCm)},${it.quantity},\"${it.material}\",${fmt(it.pvcMeters())},\"${it.note}\"")}}; val safe=name.replace(Regex("[^\u0600-\u06FFa-zA-Z0-9_-]+"),"_").ifBlank{"cutlist"}; startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="text/csv";putExtra(Intent.EXTRA_TITLE,"$safe-cutlist.csv")},REQUEST_CSV) }
+    private fun exportCsv(name: String, pieces: List<CutPiece>) {
+        if (pieces.isEmpty()) return toast("لیست برش خالی است.")
+        pendingCsv = buildString {
+            appendLine("پروژه,$name")
+            appendLine("قطعه,طول_cm,عرض_cm,تعداد,متریال,PVC_m,توضیح")
+            pieces.forEach {
+                appendLine("\"${it.name}\",${fmt(it.lengthCm)},${fmt(it.widthCm)},${it.quantity},\"${it.material}\",${fmt(it.pvcMeters())},\"${it.note}\"")
+            }
+        }
+        val safe = safeFileName(name, "cutlist")
+        startActivityForResult(
+            Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "text/csv"
+                putExtra(Intent.EXTRA_TITLE, "$safe-cutlist.csv")
+            },
+            REQUEST_CSV
+        )
+    }
+
+    /** پاک‌سازی نام فایل بدون حذف حروف فارسی. */
+    private fun safeFileName(value: String, fallback: String): String =
+        value.replace(Regex("[^\u0600-\u06FFa-zA-Z0-9_-]+"), "_").ifBlank { fallback }
+
 
     // ---------- UI helpers ----------
     private fun card(title:String,subtitle:String,bg:Int,action:(()->Unit)?=null):View=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(15),dp(13),dp(15),dp(13));background=rounded(bg,18);isClickable=action!=null;isFocusable=action!=null;if(action!=null)setOnClickListener{action()};layoutParams=LinearLayout.LayoutParams(-1,-2).apply{setMargins(0,dp(5),0,dp(5))};addView(text(title,17,true,ink));addView(text(subtitle,13,false,Color.rgb(92,82,74)))}
@@ -507,14 +946,46 @@ class MainActivity : Activity() {
     private fun toast(v:String){Toast.makeText(this,v,Toast.LENGTH_SHORT).show()}
 
     // ---------- input/format helpers ----------
-    private fun number(e:EditText,label:String):Double=e.text.toString().trim().replace('٫','.').replace(',','.').toDoubleOrNull()?.takeIf{it>=0}?:throw IllegalArgumentException("$label را وارد کنید.")
-    private fun integer(e:EditText,label:String):Int=e.text.toString().trim().toIntOrNull()?.takeIf{it>=0}?:throw IllegalArgumentException("$label را به‌صورت عدد صحیح وارد کنید.")
-    private fun numOr(e:EditText,d:Double)=e.text.toString().trim().replace('٫','.').replace(',','.').toDoubleOrNull()?:d
-    private fun intOr(e:EditText,d:Int)=e.text.toString().trim().toIntOrNull()?:d
+    /** تبدیل ارقام فارسی/عربی و جداکننده‌ها به فرمت عدد استاندارد. */
+    private fun normalizeNumber(value: String): String {
+        val persian = "۰۱۲۳۴۵۶۷۸۹"
+        val arabic = "٠١٢٣٤٥٦٧٨٩"
+        return buildString {
+            value.trim().forEach { char ->
+                when {
+                    persian.indexOf(char) >= 0 -> append('0' + persian.indexOf(char))
+                    arabic.indexOf(char) >= 0 -> append('0' + arabic.indexOf(char))
+                    char == '٫' || char == ',' || char == '٬' -> append('.')
+                    else -> append(char)
+                }
+            }
+        }
+    }
+
+    private fun number(e: EditText, label: String): Double =
+        normalizeNumber(e.text.toString()).toDoubleOrNull()?.takeIf { it >= 0 }
+            ?: throw IllegalArgumentException("$label را وارد کنید.")
+
+    private fun integer(e: EditText, label: String): Int =
+        normalizeNumber(e.text.toString()).toIntOrNull()?.takeIf { it >= 0 }
+            ?: throw IllegalArgumentException("$label را به‌صورت عدد صحیح وارد کنید.")
+
+    private fun numOr(e: EditText, default: Double) =
+        normalizeNumber(e.text.toString()).toDoubleOrNull() ?: default
+
+    private fun intOr(e: EditText, default: Int) =
+        normalizeNumber(e.text.toString()).toIntOrNull() ?: default
+
     private fun fmt(v:Double?):String{val n=v?:0.0;return if(abs(n-n.roundToInt())<0.0001)n.roundToInt().toString() else String.format(Locale.US,"%.2f",n)}
     private fun money(v:Double)=NumberFormat.getIntegerInstance(Locale("fa","IR")).format(v.toLong())
     private fun date(t:Long)=SimpleDateFormat("yyyy/MM/dd",Locale.US).format(Date(t))
     private fun dp(v:Int)=(v*resources.displayMetrics.density).toInt()
 
-    companion object { private const val REQUEST_PROFILE=1001; private const val REQUEST_CSV=1002 }
+    companion object {
+        private const val REQUEST_PROFILE = 1001
+        private const val REQUEST_CSV = 1002
+        private const val REQUEST_PDF = 1003
+        private const val REQUEST_BACKUP_CREATE = 1004
+        private const val REQUEST_BACKUP_OPEN = 1005
+    }
 }
