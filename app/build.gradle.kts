@@ -16,9 +16,9 @@ android {
         applicationId = "com.mdfchi.app"
         minSdk = 23
         targetSdk = 35
-        // نسخه 2 به‌عنوان ارتقای اصلی و بالاتر از versionCode=3 منتشر می‌شود.
-        versionCode = 20
-        versionName = "2.0.0"
+        // نسخه 3 یک ارتقای Major است و روی تمام نسخه‌های 1.x و 2.x نصب می‌شود.
+        versionCode = 30
+        versionName = "3.0.0"
     }
 
     buildTypes {
